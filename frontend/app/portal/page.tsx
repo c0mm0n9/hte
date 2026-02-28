@@ -223,7 +223,6 @@ export default function PortalPage() {
   const [newBlacklistValue, setNewBlacklistValue] = useState('');
   const [listActionError, setListActionError] = useState<string | null>(null);
   const [listLoading, setListLoading] = useState(false);
-  const [visitedDomainsRemovedAfterAdd, setVisitedDomainsRemovedAfterAdd] = useState<Record<number, Set<string>>>({});
 
   const refreshDashboard = () => {
     return fetchDashboard().then((d) => {
@@ -336,12 +335,6 @@ export default function PortalPage() {
         if (source === 'blacklist' && entryId != null) {
           await deleteBlacklistEntry(device.id, entryId);
         }
-        if (source === 'visited') {
-          setVisitedDomainsRemovedAfterAdd((prev) => ({
-            ...prev,
-            [device.id]: new Set([...(prev[device.id] ?? []), domain]),
-          }));
-        }
         await refreshDashboard();
       } catch (err) {
         setListActionError(err instanceof Error ? err.message : 'Failed to add');
@@ -377,12 +370,6 @@ export default function PortalPage() {
         await addBlacklistEntry(device.id, domain);
         if (source === 'whitelist' && entryId != null) {
           await deleteWhitelistEntry(device.id, entryId);
-        }
-        if (source === 'visited') {
-          setVisitedDomainsRemovedAfterAdd((prev) => ({
-            ...prev,
-            [device.id]: new Set([...(prev[device.id] ?? []), domain]),
-          }));
         }
         await refreshDashboard();
       } catch (err) {
@@ -420,9 +407,10 @@ export default function PortalPage() {
   }
 
   const sites = selectedDevice?.visited_sites ?? [];
+  const whitelistValues = new Set((selectedDevice?.whitelist ?? []).map((e) => e.value));
+  const blacklistValues = new Set((selectedDevice?.blacklist ?? []).map((e) => e.value));
   const visitedDomainsAll = [...new Set(sites.map((s) => getDomain(s.url)))].sort();
-  const removedSet = selectedDevice ? visitedDomainsRemovedAfterAdd[selectedDevice.id] : undefined;
-  const visitedDomains = removedSet ? visitedDomainsAll.filter((d) => !removedSet.has(d)) : visitedDomainsAll;
+  const visitedDomains = visitedDomainsAll.filter((d) => !whitelistValues.has(d) && !blacklistValues.has(d));
   const apiKey = selectedDevice ? `${selectedDevice.uuid}-${selectedDevice.device_type}` : '';
 
   async function handleCopyApiKey() {
