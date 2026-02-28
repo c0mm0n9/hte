@@ -330,6 +330,50 @@ def _media_is_fake(item: FakeMediaItem) -> bool:
     return False
 
 
+# Threshold above which a chunk is considered "fake" (AI-generated/deepfake)
+MEDIA_FAKE_THRESHOLD = 0.5
+
+
+def _media_item_from_result(data: dict[str, Any]) -> FakeMediaItem | None:
+    """Build a FakeMediaItem from a media_checking result dict."""
+    if data.get("error"):
+        return None
+    media_url = data.get("media_url") or ""
+    chunks_raw = data.get("chunks") or []
+    chunks = []
+    for c in chunks_raw:
+        if isinstance(c, dict):
+            chunks.append(
+                FakeMediaChunk(
+                    index=c.get("index", 0),
+                    start_seconds=c.get("start_seconds", 0.0),
+                    end_seconds=c.get("end_seconds", 0.0),
+                    ai_generated_score=c.get("ai_generated_score"),
+                    deepfake_score=c.get("deepfake_score"),
+                    label=c.get("label", ""),
+                    provider_raw=c.get("provider_raw"),
+                )
+            )
+    return FakeMediaItem(
+        media_url=str(media_url),
+        media_type=data.get("media_type", ""),
+        duration_seconds=float(data.get("duration_seconds", 0)),
+        chunk_seconds=int(data.get("chunk_seconds", 0)),
+        provider=data.get("provider", ""),
+        chunks=chunks,
+    )
+
+
+def _media_is_fake(item: FakeMediaItem) -> bool:
+    """True if any chunk has ai_generated_score or deepfake_score >= threshold."""
+    for c in item.chunks:
+        ag = c.ai_generated_score
+        df = c.deepfake_score
+        if (ag is not None and ag >= MEDIA_FAKE_THRESHOLD) or (df is not None and df >= MEDIA_FAKE_THRESHOLD):
+            return True
+    return False
+
+
 def build_fake_facts(action_results: list[tuple[str, Any]]) -> list[FakeFact]:
     """Collect fact_check results where truth_value is False."""
     out: list[FakeFact] = []
