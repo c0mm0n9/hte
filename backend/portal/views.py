@@ -4,7 +4,28 @@ from django.views.decorators.http import require_GET, require_POST, require_http
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
-from .models import Device, VisitedSite
+from .models import Device, DeviceWhitelist, DeviceBlacklist, VisitedSite
+
+# Predetermined suggested lists (parent can add these in one click)
+SUGGESTED_WHITELIST = [
+    'youtube.com',
+    'kids.youtube.com',
+    'pbskids.org',
+    'nickjr.com',
+    'disneyjunior.com',
+    'khanacademy.org',
+    'duolingo.com',
+    'nationalgeographic.com',
+    'abcya.com',
+]
+SUGGESTED_BLACKLIST = [
+    'pornhub.com',
+    'xvideos.com',
+    'xnxx.com',
+    'redtube.com',
+    'youporn.com',
+    'xhamster.com',
+]
 
 
 def _require_parent(view_func):
@@ -37,6 +58,8 @@ def _serialize_device(device):
         'device_type': device.device_type,
         'api_key': f"{device.uuid}-{device.device_type}",
         'agentic_prompt': device.agentic_prompt or '',
+        'whitelist': [{'id': e.id, 'value': e.value} for e in device.whitelist_entries.all()],
+        'blacklist': [{'id': e.id, 'value': e.value} for e in device.blacklist_entries.all()],
     }
 
 
@@ -60,14 +83,18 @@ def api_devices_list(request):
         if device_type not in (Device.TYPE_CONTROL, Device.TYPE_AGENTIC):
             device_type = Device.TYPE_CONTROL
         agentic_prompt = (data.get('agentic_prompt') or '').strip()
-        if device_type == Device.TYPE_AGENTIC and not agentic_prompt:
-            return JsonResponse({'error': 'Agentic prompt is required for agentic devices'}, status=400)
+        if device_type == Device.TYPE_CONTROL and not agentic_prompt:
+            return JsonResponse({'error': 'Control prompt is required for control devices'}, status=400)
         device = Device.objects.create(
             parent=request.user,
             label=label,
             device_type=device_type,
-            agentic_prompt=agentic_prompt if device_type == Device.TYPE_AGENTIC else '',
+            agentic_prompt=agentic_prompt if device_type == Device.TYPE_CONTROL else '',
         )
+        for value in SUGGESTED_WHITELIST:
+            DeviceWhitelist.objects.get_or_create(device=device, value=value)
+        for value in SUGGESTED_BLACKLIST:
+            DeviceBlacklist.objects.get_or_create(device=device, value=value)
         return JsonResponse({**_serialize_device(device), 'status': 'created'})
     return JsonResponse({'error': 'Method not allowed'}, status=405)
 
@@ -80,6 +107,79 @@ def api_device_delete(request, device_id):
     if not device:
         return JsonResponse({'error': 'Device not found'}, status=404)
     device.delete()
+    return JsonResponse({'status': 'deleted'})
+
+
+def _get_device_for_parent(request, device_id):
+    """Return device if it belongs to request.user, else None."""
+    return Device.objects.filter(parent=request.user, pk=device_id).first()
+
+
+@require_POST
+@_require_parent
+def api_device_whitelist_add(request, device_id):
+    """Add a whitelist entry. Body: { value: string }."""
+    device = _get_device_for_parent(request, device_id)
+    if not device:
+        return JsonResponse({'error': 'Device not found'}, status=404)
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+    value = (data.get('value') or '').strip()
+    if not value:
+        return JsonResponse({'error': 'value is required'}, status=400)
+    if len(value) > 500:
+        return JsonResponse({'error': 'value too long'}, status=400)
+    entry, created = DeviceWhitelist.objects.get_or_create(device=device, value=value)
+    return JsonResponse({'id': entry.id, 'value': entry.value, 'status': 'created' if created else 'exists'})
+
+
+@require_http_methods(['DELETE'])
+@_require_parent
+def api_device_whitelist_delete(request, device_id, entry_id):
+    """Remove a whitelist entry."""
+    device = _get_device_for_parent(request, device_id)
+    if not device:
+        return JsonResponse({'error': 'Device not found'}, status=404)
+    entry = DeviceWhitelist.objects.filter(device=device, pk=entry_id).first()
+    if not entry:
+        return JsonResponse({'error': 'Whitelist entry not found'}, status=404)
+    entry.delete()
+    return JsonResponse({'status': 'deleted'})
+
+
+@require_POST
+@_require_parent
+def api_device_blacklist_add(request, device_id):
+    """Add a blacklist entry. Body: { value: string }."""
+    device = _get_device_for_parent(request, device_id)
+    if not device:
+        return JsonResponse({'error': 'Device not found'}, status=404)
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+    value = (data.get('value') or '').strip()
+    if not value:
+        return JsonResponse({'error': 'value is required'}, status=400)
+    if len(value) > 500:
+        return JsonResponse({'error': 'value too long'}, status=400)
+    entry, created = DeviceBlacklist.objects.get_or_create(device=device, value=value)
+    return JsonResponse({'id': entry.id, 'value': entry.value, 'status': 'created' if created else 'exists'})
+
+
+@require_http_methods(['DELETE'])
+@_require_parent
+def api_device_blacklist_delete(request, device_id, entry_id):
+    """Remove a blacklist entry."""
+    device = _get_device_for_parent(request, device_id)
+    if not device:
+        return JsonResponse({'error': 'Device not found'}, status=404)
+    entry = DeviceBlacklist.objects.filter(device=device, pk=entry_id).first()
+    if not entry:
+        return JsonResponse({'error': 'Blacklist entry not found'}, status=404)
+    entry.delete()
     return JsonResponse({'status': 'deleted'})
 
 
@@ -222,7 +322,11 @@ def api_register(request):
 @_require_parent
 def api_dashboard(request):
     """Dashboard summary: only the authenticated parent's devices and their visits."""
-    devices = Device.objects.filter(parent=request.user).order_by('label')
+    devices = (
+        Device.objects.filter(parent=request.user)
+        .order_by('label')
+        .prefetch_related('whitelist_entries', 'blacklist_entries')
+    )
     result = {'devices': []}
     for device in devices:
         sites = VisitedSite.objects.filter(device=device).order_by('-visited_at')[:100]

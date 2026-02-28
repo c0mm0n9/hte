@@ -4,7 +4,7 @@ from django.contrib.auth.models import User
 
 
 class Device(models.Model):
-    """A device (browser/device) linked to a parent, with type: control (predetermined settings) or agentic (parent-defined AI prompt)."""
+    """A device linked to a parent. Control = parent-defined prompt; Agentic = predetermined settings."""
     TYPE_CONTROL = 'control'
     TYPE_AGENTIC = 'agentic'
     TYPE_CHOICES = [
@@ -16,7 +16,7 @@ class Device(models.Model):
     uuid = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
     parent = models.ForeignKey(User, on_delete=models.CASCADE, related_name='devices')
     device_type = models.CharField(max_length=20, choices=TYPE_CHOICES, default=TYPE_CONTROL)
-    # For agentic: parent-defined prompt for the agentic AI. Blank for control.
+    # For control: parent-defined prompt. Blank for agentic (predetermined).
     agentic_prompt = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -28,8 +28,36 @@ class Device(models.Model):
         return f"{self.label} ({self.get_device_type_display()})"
 
 
+class DeviceWhitelist(models.Model):
+    """Allowed site/domain for a device (e.g. youtube.com, kids.youtube.com)."""
+    device = models.ForeignKey(Device, on_delete=models.CASCADE, related_name='whitelist_entries')
+    value = models.CharField(max_length=500)  # domain or URL pattern
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['value']
+        unique_together = [('device', 'value')]
+
+    def __str__(self):
+        return f"{self.device.label}: {self.value}"
+
+
+class DeviceBlacklist(models.Model):
+    """Blocked site/domain for a device (e.g. 18+ sites)."""
+    device = models.ForeignKey(Device, on_delete=models.CASCADE, related_name='blacklist_entries')
+    value = models.CharField(max_length=500)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['value']
+        unique_together = [('device', 'value')]
+
+    def __str__(self):
+        return f"{self.device.label}: {self.value}"
+
+
 class VisitedSite(models.Model):
-    """A website visit recorded by the extension, with detection results."""
+    """A website visit recorded by the extension (visited list / history)."""
     device = models.ForeignKey(Device, on_delete=models.CASCADE, related_name='visited_sites')
     url = models.URLField(max_length=2048)
     title = models.CharField(max_length=512, blank=True)

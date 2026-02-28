@@ -14,12 +14,16 @@ export type VisitedSite = {
   notes: string;
 };
 
+export type ListEntry = { id: number; value: string };
+
 export type Device = {
   id: number;
   label: string;
   uuid: string;
   device_type: 'control' | 'agentic';
   agentic_prompt: string;
+  whitelist: ListEntry[];
+  blacklist: ListEntry[];
 };
 
 export type DashboardDevice = Device & {
@@ -143,4 +147,56 @@ export async function deleteDevice(deviceId: number): Promise<void> {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to remove device');
+}
+
+export async function addWhitelistEntry(deviceId: number, value: string): Promise<ListEntry> {
+  const csrfToken = await fetchCsrfToken();
+  const res = await fetch(`${API_BASE}/api/portal/devices/${deviceId}/whitelist/`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRFToken': csrfToken,
+    },
+    credentials: defaultCredentials,
+    body: JSON.stringify({ value }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to add whitelist entry');
+  return { id: data.id, value: data.value };
+}
+
+export async function deleteWhitelistEntry(deviceId: number, entryId: number): Promise<void> {
+  const csrfToken = await fetchCsrfToken();
+  const res = await fetch(`${API_BASE}/api/portal/devices/${deviceId}/whitelist/${entryId}/`, {
+    method: 'DELETE',
+    headers: { 'X-CSRFToken': csrfToken },
+    credentials: defaultCredentials,
+  });
+  if (!res.ok) throw new Error('Failed to remove whitelist entry');
+}
+
+export async function addBlacklistEntry(deviceId: number, value: string): Promise<ListEntry> {
+  const csrfToken = await fetchCsrfToken();
+  const res = await fetch(`${API_BASE}/api/portal/devices/${deviceId}/blacklist/`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRFToken': csrfToken,
+    },
+    credentials: defaultCredentials,
+    body: JSON.stringify({ value }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to add blacklist entry');
+  return { id: data.id, value: data.value };
+}
+
+export async function deleteBlacklistEntry(deviceId: number, entryId: number): Promise<void> {
+  const csrfToken = await fetchCsrfToken();
+  const res = await fetch(`${API_BASE}/api/portal/devices/${deviceId}/blacklist/${entryId}/`, {
+    method: 'DELETE',
+    headers: { 'X-CSRFToken': csrfToken },
+    credentials: defaultCredentials,
+  });
+  if (!res.ok) throw new Error('Failed to remove blacklist entry');
 }

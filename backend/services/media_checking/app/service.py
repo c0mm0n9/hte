@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import tempfile
 from pathlib import Path
 from typing import Optional, Literal
@@ -7,6 +8,8 @@ from urllib.parse import urlparse
 import httpx
 
 from .config import Settings
+
+logger = logging.getLogger(__name__)
 from .media import (
     VideoChunk,
     chunk_video,
@@ -27,29 +30,32 @@ async def detect_media_type(
     type_hint: Optional[Literal["image", "video"]] = None,
 ) -> Literal["image", "video"]:
     if type_hint in ("image", "video"):
+        logger.debug("Media type from hint: %s url=%s", type_hint, media_url)
         return type_hint
 
     path = urlparse(media_url).path.lower()
     for ext in IMAGE_EXTENSIONS:
         if path.endswith(ext):
+            logger.debug("Media type from extension (image) url=%s", media_url)
             return "image"
     for ext in VIDEO_EXTENSIONS:
         if path.endswith(ext):
+            logger.debug("Media type from extension (video) url=%s", media_url)
             return "video"
 
     try:
         async with httpx.AsyncClient(timeout=5.0, follow_redirects=True) as client:
             resp = await client.head(media_url)
             ct = (resp.headers.get("Content-Type") or "").lower()
+            logger.debug("Media type HEAD probe content-type=%s url=%s", ct, media_url)
             if ct.startswith("image/"):
                 return "image"
             if ct.startswith("video/"):
                 return "video"
-    except Exception:
-        # Best-effort only; fall back below.
-        pass
+    except Exception as e:
+        logger.warning("Media type HEAD probe failed url=%s error=%s", media_url, e)
 
-    # Default to video for safety with existing behavior.
+    logger.debug("Media type defaulting to video url=%s", media_url)
     return "video"
 
 
@@ -57,6 +63,7 @@ async def run_image_detection(
     media_url: str,
     settings: Settings,
 ) -> MediaCheckResponse:
+    logger.info("Starting image detection url=%s provider=%s", media_url, settings.provider_name)
     temp_dir = None
     try:
         temp_dir, media_path, mime_type = await download_media_to_temp(
@@ -73,6 +80,7 @@ async def run_image_detection(
         )
 
         result = await provider.score_chunk(chunk, settings)
+        logger.info("Image detection complete url=%s result=%s", media_url, result)
 
         return MediaCheckResponse(
             media_url=media_url,
@@ -139,7 +147,14 @@ async def run_media_detection(
     type_hint: Optional[Literal["image", "video"]],
     settings: Settings,
 ) -> MediaCheckResponse:
+    logger.info(
+        "run_media_detection url=%s type_hint=%s provider=%s",
+        media_url,
+        type_hint,
+        settings.provider_name,
+    )
     media_type = await detect_media_type(media_url, type_hint)
+    logger.info("Detected media_type=%s url=%s", media_type, media_url)
     if media_type == "image":
         return await run_image_detection(media_url, settings)
     return await run_video_detection(media_url, chunk_seconds, max_chunks, settings)

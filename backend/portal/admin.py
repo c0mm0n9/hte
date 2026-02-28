@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Device, VisitedSite
+from .models import Device, DeviceWhitelist, DeviceBlacklist, VisitedSite
 
 
 @admin.register(Device)
@@ -8,6 +8,20 @@ class DeviceAdmin(admin.ModelAdmin):
     list_filter = ('device_type', 'parent')
     search_fields = ('label', 'uuid')
     readonly_fields = ('uuid',)
+
+
+@admin.register(DeviceWhitelist)
+class DeviceWhitelistAdmin(admin.ModelAdmin):
+    list_display = ('device', 'value', 'created_at')
+    list_filter = ('device',)
+    search_fields = ('value',)
+
+
+@admin.register(DeviceBlacklist)
+class DeviceBlacklistAdmin(admin.ModelAdmin):
+    list_display = ('device', 'value', 'created_at')
+    list_filter = ('device',)
+    search_fields = ('value',)
 
 
 @admin.register(VisitedSite)

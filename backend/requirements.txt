@@ -1,2 +1,4 @@
 Django>=5.2,<6
 django-cors-headers>=4.0,<5
+psycopg2-binary>=2.9,<3
+python-dotenv>=1.0,<2

@@ -10,10 +10,16 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+import os
 from pathlib import Path
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
+from dotenv import load_dotenv
+
 BASE_DIR = Path(__file__).resolve().parent.parent
+# Load .env from backend directory; also try backend/backend/.env as fallback
+_env_dir = BASE_DIR.parent
+load_dotenv(str(_env_dir / '.env'))
+load_dotenv(str(BASE_DIR / '.env'))
 
 
 # Quick-start development settings - unsuitable for production
@@ -81,13 +87,32 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
+# Use PostgreSQL when POSTGRES_DB or POSTGRES_HOST is set (e.g. from .env); otherwise SQLite.
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+_use_postgres = (
+    (os.environ.get('POSTGRES_DB') or '').strip() != ''
+    or (os.environ.get('POSTGRES_HOST') or '').strip() != ''
+)
+
+if _use_postgres:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': (os.environ.get('POSTGRES_DB') or 'hte').strip(),
+            'USER': (os.environ.get('POSTGRES_USER') or 'postgres').strip(),
+            'PASSWORD': (os.environ.get('POSTGRES_PASSWORD') or '').strip(),
+            'HOST': (os.environ.get('POSTGRES_HOST') or 'localhost').strip(),
+            'PORT': (os.environ.get('POSTGRES_PORT') or '5432').strip(),
+            'OPTIONS': {'connect_timeout': 5},
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 
 # Password validation
