@@ -103,6 +103,7 @@ export default function PortalPage() {
   const [addDeviceError, setAddDeviceError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const [apiKeyRevealed, setApiKeyRevealed] = useState(false);
 
   const refreshDashboard = () => {
     return fetchDashboard().then((d) => {
@@ -181,6 +182,10 @@ export default function PortalPage() {
       setSelectedDeviceId(data.devices[0].id);
     }
   }, [data, selectedDeviceId]);
+
+  useEffect(() => {
+    setApiKeyRevealed(false);
+  }, [selectedDeviceId]);
 
   if (loading) {
     return (
@@ -268,12 +273,6 @@ export default function PortalPage() {
                 </button>
               </>
             )}
-            <Link
-              href="/register"
-              className="rounded-md bg-zinc-200 px-4 py-2 text-sm font-medium text-zinc-800 hover:bg-zinc-300 dark:bg-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-600"
-            >
-              Register
-            </Link>
           </div>
         </div>
       </header>
@@ -283,23 +282,30 @@ export default function PortalPage() {
           <>
             <div className="mb-4 flex flex-wrap items-center gap-2">
               {data.devices.map((device) => (
-                <div key={device.id} className="flex items-center gap-1">
+                <div
+                  key={device.id}
+                  className={`inline-flex overflow-hidden rounded-lg text-sm font-medium transition-colors ${
+                    selectedDeviceId === device.id
+                      ? 'bg-emerald-600 text-white dark:bg-emerald-500'
+                      : 'bg-zinc-200 text-zinc-700 hover:bg-zinc-300 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600'
+                  }`}
+                >
                   <button
                     type="button"
                     onClick={() => setSelectedDeviceId(device.id)}
-                    className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
-                      selectedDeviceId === device.id
-                        ? 'bg-emerald-600 text-white dark:bg-emerald-500'
-                        : 'bg-zinc-200 text-zinc-700 hover:bg-zinc-300 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600'
-                    }`}
+                    className="px-4 py-2 text-left"
                   >
                     {device.label}
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleRemoveDevice(device.id, device.label)}
+                    onClick={(e) => { e.stopPropagation(); handleRemoveDevice(device.id, device.label); }}
                     disabled={deletingId === device.id}
-                    className="rounded-lg p-2 text-zinc-500 hover:bg-red-100 hover:text-red-700 disabled:opacity-50 dark:hover:bg-red-900/30 dark:hover:text-red-400"
+                    className={`border-l px-2.5 py-2 transition-colors ${
+                      selectedDeviceId === device.id
+                        ? 'border-emerald-500/50 hover:bg-emerald-700 dark:border-emerald-400/30 dark:hover:bg-emerald-600'
+                        : 'border-zinc-300 dark:border-zinc-600 hover:bg-red-100 hover:text-red-700 dark:hover:bg-red-900/30 dark:hover:text-red-400'
+                    } disabled:opacity-50`}
                     title="Remove device"
                   >
                     {deletingId === device.id ? '…' : '✕'}
@@ -316,9 +322,14 @@ export default function PortalPage() {
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">API key</p>
-                    <p className="font-mono text-sm text-zinc-800 dark:text-zinc-200" title={apiKey}>
-                      {apiKey}
-                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setApiKeyRevealed((v) => !v)}
+                      className="mt-0.5 block rounded bg-zinc-300/80 px-2 py-1 font-mono text-sm text-zinc-800 dark:bg-zinc-700/80 dark:text-zinc-200"
+                      title={apiKeyRevealed ? 'Click to hide' : 'Click to reveal'}
+                    >
+                      {apiKeyRevealed ? apiKey : '••••••••••••••••••••••••••••••••'}
+                    </button>
                   </div>
                   <div className="flex items-center gap-2">
                     {copyStatus && (

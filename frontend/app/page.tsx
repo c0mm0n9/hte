@@ -37,12 +37,6 @@ export default function Home() {
           >
             Parents portal
           </Link>
-          <Link
-            href="/about"
-            className="inline-flex rounded-xl border-2 border-emerald-600 bg-transparent px-8 py-4 text-base font-semibold text-emerald-700 transition hover:bg-emerald-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 dark:border-emerald-500 dark:text-emerald-400 dark:hover:bg-emerald-500 dark:hover:text-white"
-          >
-            About team
-          </Link>
         </div>
       </main>
     </div>
