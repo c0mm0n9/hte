@@ -1,10 +1,31 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import type { DashboardResponse, VisitedSite, UserInfo } from '@/lib/api';
-import { fetchDashboard, fetchMe, logout, createDevice, deleteDevice } from '@/lib/api';
+import type { DashboardResponse, VisitedSite, UserInfo, ListEntry } from '@/lib/api';
+import {
+  fetchDashboard,
+  fetchMe,
+  logout,
+  createDevice,
+  deleteDevice,
+  addWhitelistEntry,
+  deleteWhitelistEntry,
+  addBlacklistEntry,
+  deleteBlacklistEntry,
+} from '@/lib/api';
+
+const DRAG_TYPE = 'application/x-hsafety-domain';
+
+function getDomain(url: string): string {
+  try {
+    const hostname = new URL(url).hostname;
+    return hostname.replace(/^www\./i, '') || hostname;
+  } catch {
+    return url;
+  }
+}
 
 function DetectionBadge({ value }: { value: boolean }) {
   if (value) {
@@ -21,7 +42,94 @@ function DetectionBadge({ value }: { value: boolean }) {
   );
 }
 
-function VisitedSitesTable({ sites }: { sites: VisitedSite[] }) {
+function VisitDetailModal({
+  site,
+  onClose,
+}: {
+  site: VisitedSite;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="visit-detail-title"
+    >
+      <div
+        className="w-full max-w-lg rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
+          <h2 id="visit-detail-title" className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+            Visit details
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-700 dark:hover:text-zinc-300"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+        <div className="space-y-4 px-4 py-4">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Title</p>
+            <p className="mt-0.5 font-medium text-zinc-900 dark:text-zinc-100">
+              {site.title || '—'}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">URL</p>
+            <a
+              href={site.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-0.5 block max-w-full truncate font-medium text-blue-600 hover:underline dark:text-blue-400"
+              title={site.url}
+            >
+              {site.url}
+            </a>
+          </div>
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Visited</p>
+            <p className="mt-0.5 text-zinc-700 dark:text-zinc-300">
+              {new Date(site.visited_at).toLocaleString()}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Harmful</span>
+            <DetectionBadge value={site.ai_detected} />
+            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Private information leakage</span>
+            <DetectionBadge value={site.fake_news_detected} />
+            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Possible predators</span>
+            <DetectionBadge value={site.harmful_content_detected} />
+          </div>
+          {site.notes && (
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Notes</p>
+              <p className="mt-0.5 text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap">{site.notes}</p>
+            </div>
+          )}
+          <div className="pt-2">
+            <a
+              href={site.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600"
+            >
+              Open website →
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function VisitedSitesTable({ sites, onSelectSite }: { sites: VisitedSite[]; onSelectSite?: (site: VisitedSite) => void }) {
   if (sites.length === 0) {
     return (
       <p className="text-sm text-zinc-500 dark:text-zinc-400">No visits recorded yet.</p>
@@ -39,29 +147,35 @@ function VisitedSitesTable({ sites }: { sites: VisitedSite[] }) {
               Visited
             </th>
             <th scope="col" className="px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
-              AI detected
+              Harmful
             </th>
             <th scope="col" className="px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
-              Fake news
+              Private information leakage
             </th>
             <th scope="col" className="px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
-              Harmful content
+              Possible predators
             </th>
           </tr>
         </thead>
         <tbody className="divide-y divide-zinc-200 bg-white dark:divide-zinc-700 dark:bg-zinc-900/30">
           {sites.map((site) => (
-            <tr key={site.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/30">
+            <tr
+              key={site.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => onSelectSite?.(site)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onSelectSite?.(site);
+                }
+              }}
+              className="cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/30 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-inset"
+            >
               <td className="px-4 py-3">
-                <a
-                  href={site.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="max-w-[280px] truncate font-medium text-blue-600 hover:underline dark:text-blue-400"
-                  title={site.url}
-                >
+                <span className="max-w-[280px] truncate font-medium text-zinc-900 dark:text-zinc-100 block">
                   {site.title || site.url}
-                </a>
+                </span>
                 {site.title && (
                   <div className="max-w-[280px] truncate text-xs text-zinc-500 dark:text-zinc-400" title={site.url}>
                     {site.url}
@@ -104,6 +218,12 @@ export default function PortalPage() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const [apiKeyRevealed, setApiKeyRevealed] = useState(false);
+  const [selectedVisit, setSelectedVisit] = useState<VisitedSite | null>(null);
+  const [newWhitelistValue, setNewWhitelistValue] = useState('');
+  const [newBlacklistValue, setNewBlacklistValue] = useState('');
+  const [listActionError, setListActionError] = useState<string | null>(null);
+  const [listLoading, setListLoading] = useState(false);
+  const [visitedDomainsRemovedAfterAdd, setVisitedDomainsRemovedAfterAdd] = useState<Record<number, Set<string>>>({});
 
   const refreshDashboard = () => {
     return fetchDashboard().then((d) => {
@@ -135,14 +255,14 @@ export default function PortalPage() {
     e.preventDefault();
     const label = addLabel.trim();
     if (!label) return;
-    if (addDeviceType === 'agentic' && !addAgenticPrompt.trim()) return;
+    if (addDeviceType === 'control' && !addAgenticPrompt.trim()) return;
     setAddDeviceError(null);
     setAddDeviceLoading(true);
     try {
       await createDevice({
         label,
         device_type: addDeviceType,
-        agentic_prompt: addDeviceType === 'agentic' ? addAgenticPrompt.trim() : undefined,
+        agentic_prompt: addDeviceType === 'control' ? addAgenticPrompt.trim() : undefined,
       });
       setAddLabel('');
       setAddAgenticPrompt('');
@@ -185,7 +305,94 @@ export default function PortalPage() {
 
   useEffect(() => {
     setApiKeyRevealed(false);
+    setListActionError(null);
   }, [selectedDeviceId]);
+
+  const selectedDevice = data?.devices.find((d) => d.id === selectedDeviceId);
+
+  const handleDropOnWhitelist = useCallback(
+    async (e: React.DragEvent) => {
+      e.preventDefault();
+      const raw = e.dataTransfer.getData(DRAG_TYPE);
+      if (!raw) return;
+      const device = data?.devices.find((d) => d.id === selectedDeviceId);
+      if (!device) return;
+      let domain: string;
+      let source: string;
+      let entryId: number | undefined;
+      try {
+        const payload = JSON.parse(raw) as { domain: string; source: string; entryId?: number };
+        domain = payload.domain?.trim();
+        source = payload.source;
+        entryId = payload.entryId;
+      } catch {
+        return;
+      }
+      if (!domain) return;
+      setListActionError(null);
+      setListLoading(true);
+      try {
+        await addWhitelistEntry(device.id, domain);
+        if (source === 'blacklist' && entryId != null) {
+          await deleteBlacklistEntry(device.id, entryId);
+        }
+        if (source === 'visited') {
+          setVisitedDomainsRemovedAfterAdd((prev) => ({
+            ...prev,
+            [device.id]: new Set([...(prev[device.id] ?? []), domain]),
+          }));
+        }
+        await refreshDashboard();
+      } catch (err) {
+        setListActionError(err instanceof Error ? err.message : 'Failed to add');
+      } finally {
+        setListLoading(false);
+      }
+    },
+    [data, selectedDeviceId, refreshDashboard]
+  );
+
+  const handleDropOnBlacklist = useCallback(
+    async (e: React.DragEvent) => {
+      e.preventDefault();
+      const raw = e.dataTransfer.getData(DRAG_TYPE);
+      if (!raw) return;
+      const device = data?.devices.find((d) => d.id === selectedDeviceId);
+      if (!device) return;
+      let domain: string;
+      let source: string;
+      let entryId: number | undefined;
+      try {
+        const payload = JSON.parse(raw) as { domain: string; source: string; entryId?: number };
+        domain = payload.domain?.trim();
+        source = payload.source;
+        entryId = payload.entryId;
+      } catch {
+        return;
+      }
+      if (!domain) return;
+      setListActionError(null);
+      setListLoading(true);
+      try {
+        await addBlacklistEntry(device.id, domain);
+        if (source === 'whitelist' && entryId != null) {
+          await deleteWhitelistEntry(device.id, entryId);
+        }
+        if (source === 'visited') {
+          setVisitedDomainsRemovedAfterAdd((prev) => ({
+            ...prev,
+            [device.id]: new Set([...(prev[device.id] ?? []), domain]),
+          }));
+        }
+        await refreshDashboard();
+      } catch (err) {
+        setListActionError(err instanceof Error ? err.message : 'Failed to add');
+      } finally {
+        setListLoading(false);
+      }
+    },
+    [data, selectedDeviceId, refreshDashboard]
+  );
 
   if (loading) {
     return (
@@ -212,8 +419,10 @@ export default function PortalPage() {
     );
   }
 
-  const selectedDevice = data?.devices.find((d) => d.id === selectedDeviceId);
   const sites = selectedDevice?.visited_sites ?? [];
+  const visitedDomainsAll = [...new Set(sites.map((s) => getDomain(s.url)))].sort();
+  const removedSet = selectedDevice ? visitedDomainsRemovedAfterAdd[selectedDevice.id] : undefined;
+  const visitedDomains = removedSet ? visitedDomainsAll.filter((d) => !removedSet.has(d)) : visitedDomainsAll;
   const apiKey = selectedDevice ? `${selectedDevice.uuid}-${selectedDevice.device_type}` : '';
 
   async function handleCopyApiKey() {
@@ -303,7 +512,7 @@ export default function PortalPage() {
                     disabled={deletingId === device.id}
                     className={`border-l px-2.5 py-2 transition-colors ${
                       selectedDeviceId === device.id
-                        ? 'border-emerald-500/50 hover:bg-emerald-700 dark:border-emerald-400/30 dark:hover:bg-emerald-600'
+                        ? 'border-emerald-500/50 hover:bg-red-100 hover:text-red-700 dark:border-emerald-400/30 dark:hover:bg-red-900/30 dark:hover:text-red-400'
                         : 'border-zinc-300 dark:border-zinc-600 hover:bg-red-100 hover:text-red-700 dark:hover:bg-red-900/30 dark:hover:text-red-400'
                     } disabled:opacity-50`}
                     title="Remove device"
@@ -315,7 +524,7 @@ export default function PortalPage() {
             </div>
             {selectedDevice && (
               <div className="mb-4 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-2 dark:border-zinc-700 dark:bg-zinc-800/50">
-                <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Device UUID (for extension)</p>
+                <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Device UUID</p>
                 <p className="font-mono text-sm text-zinc-800 dark:text-zinc-200" title={selectedDevice.uuid}>
                   {selectedDevice.uuid}
                 </p>
@@ -325,7 +534,7 @@ export default function PortalPage() {
                     <button
                       type="button"
                       onClick={() => setApiKeyRevealed((v) => !v)}
-                      className="mt-0.5 block rounded bg-zinc-300/80 px-2 py-1 font-mono text-sm text-zinc-800 dark:bg-zinc-700/80 dark:text-zinc-200"
+                      className="mt-0.5 block min-w-[12rem] rounded bg-zinc-300/80 px-2 py-1 font-mono text-sm tabular-nums text-zinc-800 transition-[background-color,min-width] duration-200 ease-out dark:bg-zinc-700/80 dark:text-zinc-200 hover:bg-zinc-300 dark:hover:bg-zinc-600/80"
                       title={apiKeyRevealed ? 'Click to hide' : 'Click to reveal'}
                     >
                       {apiKeyRevealed ? apiKey : '••••••••••••••••••••••••••••••••'}
@@ -346,7 +555,7 @@ export default function PortalPage() {
                 </div>
                 <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
                   Type: {selectedDevice.device_type === 'agentic' ? 'Agentic' : 'Control'}
-                  {selectedDevice.device_type === 'agentic' && selectedDevice.agentic_prompt && (
+                  {selectedDevice.device_type === 'control' && selectedDevice.agentic_prompt && (
                     <> · Prompt: {selectedDevice.agentic_prompt.slice(0, 60)}{selectedDevice.agentic_prompt.length > 60 ? '…' : ''}</>
                   )}
                 </p>
@@ -354,124 +563,327 @@ export default function PortalPage() {
             )}
             <section className="mb-6 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
               <h3 className="mb-3 text-sm font-medium text-zinc-700 dark:text-zinc-300">Add a device</h3>
-              <form onSubmit={handleAddDevice} className="flex flex-wrap items-end gap-3">
+              <form onSubmit={handleAddDevice} className="space-y-3">
                 {addDeviceError && (
-                  <p className="w-full text-sm text-red-600 dark:text-red-400">{addDeviceError}</p>
+                  <p className="text-sm text-red-600 dark:text-red-400">{addDeviceError}</p>
                 )}
-                <div>
-                  <label htmlFor="new-device-label" className="block text-xs text-zinc-500 dark:text-zinc-400">
-                    Label
-                  </label>
-                  <input
-                    id="new-device-label"
-                    type="text"
-                    value={addLabel}
-                    onChange={(e) => setAddLabel(e.target.value)}
-                    placeholder="e.g. Laptop, Tablet"
-                    className="mt-0.5 rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="new-device-type" className="block text-xs text-zinc-500 dark:text-zinc-400">
-                    Type
-                  </label>
-                  <select
-                    id="new-device-type"
-                    value={addDeviceType}
-                    onChange={(e) => setAddDeviceType(e.target.value as 'control' | 'agentic')}
-                    className="mt-0.5 rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
-                  >
-                    <option value="control">Control (predetermined settings)</option>
-                    <option value="agentic">Agentic (parent-defined AI prompt)</option>
-                  </select>
-                </div>
-                {addDeviceType === 'agentic' && (
-                  <div className="min-w-[240px]">
-                    <label htmlFor="new-device-prompt" className="block text-xs text-zinc-500 dark:text-zinc-400">
-                      Agentic prompt
-                    </label>
-                    <input
-                      id="new-device-prompt"
-                      type="text"
-                      value={addAgenticPrompt}
-                      onChange={(e) => setAddAgenticPrompt(e.target.value)}
-                      placeholder="Prompt for agentic AI"
-                      className="mt-0.5 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
-                    />
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+                  <div className="flex min-w-0 flex-1 flex-col gap-3 sm:max-w-xs">
+                    <div>
+                      <label htmlFor="new-device-label" className="block text-xs text-zinc-500 dark:text-zinc-400">
+                        Label
+                      </label>
+                      <input
+                        id="new-device-label"
+                        type="text"
+                        value={addLabel}
+                        onChange={(e) => setAddLabel(e.target.value)}
+                        placeholder="e.g. Laptop, Tablet"
+                        className="mt-0.5 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="new-device-type" className="block text-xs text-zinc-500 dark:text-zinc-400">
+                        Type
+                      </label>
+                      <select
+                        id="new-device-type"
+                        value={addDeviceType}
+                        onChange={(e) => setAddDeviceType(e.target.value as 'control' | 'agentic')}
+                        className="mt-0.5 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+                      >
+                        <option value="agentic">Agentic (predetermined settings)</option>
+                        <option value="control">Control (parent-defined prompt)</option>
+                      </select>
+                    </div>
                   </div>
-                )}
+                  {addDeviceType === 'control' && (
+                    <div className="min-w-0 flex-1">
+                      <label htmlFor="new-device-prompt" className="block text-xs text-zinc-500 dark:text-zinc-400">
+                        Control prompt
+                      </label>
+                      <textarea
+                        id="new-device-prompt"
+                        value={addAgenticPrompt}
+                        onChange={(e) => setAddAgenticPrompt(e.target.value)}
+                        placeholder="Describe rules or goals for this device (e.g. what content to allow or flag)"
+                        rows={5}
+                        className="mt-0.5 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 resize-y min-h-[100px]"
+                      />
+                    </div>
+                  )}
+                </div>
                 <button
                   type="submit"
-                  disabled={addDeviceLoading || !addLabel.trim() || (addDeviceType === 'agentic' && !addAgenticPrompt.trim())}
+                  disabled={addDeviceLoading || !addLabel.trim() || (addDeviceType === 'control' && !addAgenticPrompt.trim())}
                   className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50 dark:bg-emerald-500 dark:hover:bg-emerald-600"
                 >
                   {addDeviceLoading ? 'Adding…' : 'Add device'}
                 </button>
               </form>
             </section>
+            {selectedDevice && (
+              <section className="mb-6 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
+                <h2 className="mb-3 text-lg font-medium text-zinc-900 dark:text-zinc-100">
+                  Whitelist, Blacklist & Visited list {selectedDevice.label}
+                </h2>
+                <p className="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
+                  Allowed and blocked sites (customise below). Visited list shows domain names only. Drag a domain from any list and drop on another to add or move it.
+                </p>
+                {listActionError && (
+                  <p className="mb-2 text-sm text-red-600 dark:text-red-400">{listActionError}</p>
+                )}
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  <div>
+                    <h3 className="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">Whitelist</h3>
+                    <div className="mb-2 flex gap-2">
+                      <input
+                        type="text"
+                        value={newWhitelistValue}
+                        onChange={(e) => { setNewWhitelistValue(e.target.value); setListActionError(null); }}
+                        placeholder="e.g. pbskids.org"
+                        className="min-w-0 flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+                      />
+                      <button
+                        type="button"
+                        disabled={listLoading || !newWhitelistValue.trim()}
+                        onClick={async () => {
+                          if (!selectedDevice || !newWhitelistValue.trim()) return;
+                          setListActionError(null);
+                          setListLoading(true);
+                          try {
+                            await addWhitelistEntry(selectedDevice.id, newWhitelistValue.trim());
+                            setNewWhitelistValue('');
+                            await refreshDashboard();
+                          } catch (e) {
+                            setListActionError(e instanceof Error ? e.message : 'Failed to add');
+                          } finally {
+                            setListLoading(false);
+                          }
+                        }}
+                        className="shrink-0 rounded-md bg-zinc-200 px-3 py-2 text-sm font-medium text-zinc-800 dark:bg-zinc-700 dark:text-zinc-200"
+                      >
+                        Add
+                      </button>
+                    </div>
+                    <ul
+                      className="rounded border border-zinc-200 dark:border-zinc-700 max-h-40 overflow-y-auto"
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={handleDropOnWhitelist}
+                    >
+                      {(selectedDevice.whitelist ?? []).length === 0 ? (
+                        <li className="px-3 py-2 text-sm text-zinc-500 dark:text-zinc-400">No entries. Drop domains here.</li>
+                      ) : (
+                        (selectedDevice.whitelist ?? []).map((e: ListEntry) => (
+                          <li
+                            key={e.id}
+                            draggable
+                            onDragStart={(ev) => {
+                              ev.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ domain: e.value, source: 'whitelist', entryId: e.id }));
+                              ev.dataTransfer.effectAllowed = 'move';
+                            }}
+                            className="flex cursor-grab active:cursor-grabbing items-center justify-between gap-2 border-b border-zinc-100 px-3 py-2 last:border-0 dark:border-zinc-700"
+                          >
+                            <span className="min-w-0 truncate font-mono text-sm text-zinc-800 dark:text-zinc-200">{e.value}</span>
+                            <button
+                              type="button"
+                              disabled={listLoading}
+                              onClick={async () => {
+                                setListActionError(null);
+                                setListLoading(true);
+                                try {
+                                  await deleteWhitelistEntry(selectedDevice.id, e.id);
+                                  await refreshDashboard();
+                                } catch (err) {
+                                  setListActionError(err instanceof Error ? err.message : 'Failed to remove');
+                                } finally {
+                                  setListLoading(false);
+                                }
+                              }}
+                              className="shrink-0 rounded p-1 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/30"
+                              title="Remove"
+                            >
+                              ✕
+                            </button>
+                          </li>
+                        ))
+                      )}
+                    </ul>
+                  </div>
+                  <div>
+                    <h3 className="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">Blacklist</h3>
+                    <div className="mb-2 flex gap-2">
+                      <input
+                        type="text"
+                        value={newBlacklistValue}
+                        onChange={(e) => { setNewBlacklistValue(e.target.value); setListActionError(null); }}
+                        placeholder="e.g. domain.com"
+                        className="min-w-0 flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+                      />
+                      <button
+                        type="button"
+                        disabled={listLoading || !newBlacklistValue.trim()}
+                        onClick={async () => {
+                          if (!selectedDevice || !newBlacklistValue.trim()) return;
+                          setListActionError(null);
+                          setListLoading(true);
+                          try {
+                            await addBlacklistEntry(selectedDevice.id, newBlacklistValue.trim());
+                            setNewBlacklistValue('');
+                            await refreshDashboard();
+                          } catch (err) {
+                            setListActionError(err instanceof Error ? err.message : 'Failed to add');
+                          } finally {
+                            setListLoading(false);
+                          }
+                        }}
+                        className="shrink-0 rounded-md bg-zinc-200 px-3 py-2 text-sm font-medium text-zinc-800 dark:bg-zinc-700 dark:text-zinc-200"
+                      >
+                        Add
+                      </button>
+                    </div>
+                    <ul
+                      className="rounded border border-zinc-200 dark:border-zinc-700 max-h-40 overflow-y-auto"
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={handleDropOnBlacklist}
+                    >
+                      {(selectedDevice.blacklist ?? []).length === 0 ? (
+                        <li className="px-3 py-2 text-sm text-zinc-500 dark:text-zinc-400">No entries. Drop domains here.</li>
+                      ) : (
+                        (selectedDevice.blacklist ?? []).map((e: ListEntry) => (
+                          <li
+                            key={e.id}
+                            draggable
+                            onDragStart={(ev) => {
+                              ev.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ domain: e.value, source: 'blacklist', entryId: e.id }));
+                              ev.dataTransfer.effectAllowed = 'move';
+                            }}
+                            className="flex cursor-grab active:cursor-grabbing items-center justify-between gap-2 border-b border-zinc-100 px-3 py-2 last:border-0 dark:border-zinc-700"
+                          >
+                            <span className="min-w-0 truncate font-mono text-sm text-zinc-800 dark:text-zinc-200">{e.value}</span>
+                            <button
+                              type="button"
+                              disabled={listLoading}
+                              onClick={async () => {
+                                setListActionError(null);
+                                setListLoading(true);
+                                try {
+                                  await deleteBlacklistEntry(selectedDevice.id, e.id);
+                                  await refreshDashboard();
+                                } catch (err) {
+                                  setListActionError(err instanceof Error ? err.message : 'Failed to remove');
+                                } finally {
+                                  setListLoading(false);
+                                }
+                              }}
+                              className="shrink-0 rounded p-1 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/30"
+                              title="Remove"
+                            >
+                              ✕
+                            </button>
+                          </li>
+                        ))
+                      )}
+                    </ul>
+                  </div>
+                  <div>
+                    <h3 className="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">Visited list (domains only)</h3>
+                    <ul className="rounded border border-zinc-200 dark:border-zinc-700 max-h-40 overflow-y-auto">
+                      {visitedDomains.length === 0 ? (
+                        <li className="px-3 py-2 text-sm text-zinc-500 dark:text-zinc-400">No visits yet.</li>
+                      ) : (
+                        visitedDomains.map((domain) => (
+                          <li
+                            key={domain}
+                            draggable
+                            onDragStart={(ev) => {
+                              ev.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ domain, source: 'visited' }));
+                              ev.dataTransfer.effectAllowed = 'copy';
+                            }}
+                            className="cursor-grab active:cursor-grabbing border-b border-zinc-100 px-3 py-2 last:border-0 dark:border-zinc-700"
+                          >
+                            <span className="block min-w-0 truncate font-mono text-sm text-zinc-800 dark:text-zinc-200">{domain}</span>
+                          </li>
+                        ))
+                      )}
+                    </ul>
+                  </div>
+                </div>
+              </section>
+            )}
             <section>
               <h2 className="mb-3 text-lg font-medium text-zinc-900 dark:text-zinc-100">
-                Visited websites {selectedDevice && `— ${selectedDevice.label}`}
+                Visited list (full) {selectedDevice && `— ${selectedDevice.label}`}
               </h2>
-              <VisitedSitesTable sites={sites} />
+              <p className="mb-2 text-sm text-zinc-500 dark:text-zinc-400">
+                History with detection details. Click a row to view full details.
+              </p>
+              <VisitedSitesTable sites={sites} onSelectSite={setSelectedVisit} />
             </section>
+            {selectedVisit && (
+              <VisitDetailModal site={selectedVisit} onClose={() => setSelectedVisit(null)} />
+            )}
           </>
         ) : (
           <div className="rounded-lg border border-zinc-200 bg-white p-8 dark:border-zinc-700 dark:bg-zinc-900">
             <p className="mb-4 text-zinc-600 dark:text-zinc-400">
-              Add a device to start tracking browsing. Each device gets a unique UUID for the extension. Choose Control (predetermined settings) or Agentic (you set a prompt for the AI).
+              Add a device to start tracking browsing. Each device gets a unique UUID for the extension. Choose Agentic (predetermined settings) or Control (you set a prompt for this device).
             </p>
-            <form onSubmit={handleAddDevice} className="max-w-md space-y-3">
+            <form onSubmit={handleAddDevice} className="space-y-3">
               {addDeviceError && (
                 <p className="text-sm text-red-600 dark:text-red-400">{addDeviceError}</p>
               )}
-              <div>
-                <label htmlFor="first-device-label" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                  Label
-                </label>
-                <input
-                  id="first-device-label"
-                  type="text"
-                  required
-                  value={addLabel}
-                  onChange={(e) => setAddLabel(e.target.value)}
-                  placeholder="e.g. Kids laptop"
-                  className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
-                />
-              </div>
-              <div>
-                <label htmlFor="first-device-type" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                  Type
-                </label>
-                <select
-                  id="first-device-type"
-                  value={addDeviceType}
-                  onChange={(e) => setAddDeviceType(e.target.value as 'control' | 'agentic')}
-                  className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
-                >
-                  <option value="control">Control (predetermined settings, TBD)</option>
-                  <option value="agentic">Agentic (parent enters a prompt for agentic AI)</option>
-                </select>
-              </div>
-              {addDeviceType === 'agentic' && (
-                <div>
-                  <label htmlFor="first-device-prompt" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                    Agentic prompt
-                  </label>
-                  <textarea
-                    id="first-device-prompt"
-                    required={addDeviceType === 'agentic'}
-                    value={addAgenticPrompt}
-                    onChange={(e) => setAddAgenticPrompt(e.target.value)}
-                    placeholder="Enter the prompt for the agentic AI on this device"
-                    rows={3}
-                    className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
-                  />
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+                <div className="flex min-w-0 flex-1 flex-col gap-3 sm:max-w-xs">
+                  <div>
+                    <label htmlFor="first-device-label" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                      Label
+                    </label>
+                    <input
+                      id="first-device-label"
+                      type="text"
+                      required
+                      value={addLabel}
+                      onChange={(e) => setAddLabel(e.target.value)}
+                      placeholder="e.g. Kids laptop"
+                      className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="first-device-type" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                      Type
+                    </label>
+                    <select
+                      id="first-device-type"
+                      value={addDeviceType}
+                      onChange={(e) => setAddDeviceType(e.target.value as 'control' | 'agentic')}
+                      className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+                    >
+                      <option value="agentic">Agentic (predetermined settings)</option>
+                      <option value="control">Control (parent-defined prompt)</option>
+                    </select>
+                  </div>
                 </div>
-              )}
+                {addDeviceType === 'control' && (
+                  <div className="min-w-0 flex-1">
+                    <label htmlFor="first-device-prompt" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                      Control prompt
+                    </label>
+                    <textarea
+                      id="first-device-prompt"
+                      required={addDeviceType === 'control'}
+                      value={addAgenticPrompt}
+                      onChange={(e) => setAddAgenticPrompt(e.target.value)}
+                      placeholder="Describe rules or goals for this device (e.g. what content to allow or flag)"
+                      rows={6}
+                      className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 resize-y min-h-[120px]"
+                    />
+                  </div>
+                )}
+              </div>
               <button
                 type="submit"
-                disabled={addDeviceLoading || !addLabel.trim() || (addDeviceType === 'agentic' && !addAgenticPrompt.trim())}
+                disabled={addDeviceLoading || !addLabel.trim() || (addDeviceType === 'control' && !addAgenticPrompt.trim())}
                 className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50 dark:bg-emerald-500 dark:hover:bg-emerald-600"
               >
                 {addDeviceLoading ? 'Adding…' : 'Add device'}
