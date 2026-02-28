@@ -40,9 +40,11 @@ python manage.py createsuperuser   # optional, for admin access
 python manage.py runserver
 ```
 
-- API base: http://localhost:8000
-- Admin: http://localhost:8000/admin/
-- Portal API: http://localhost:8000/api/portal/
+- API base: http://127.0.0.1:8000 (use 127.0.0.1; on some systems `localhost` resolves to IPv6 and Django may be unreachable)
+- Admin: http://127.0.0.1:8000/admin/
+- Portal API: http://127.0.0.1:8000/api/portal/
+
+**Port 8000**: This Django app uses port 8000. The FastAPI services in `services/` (Media Checking, Agent Gateway, etc.) use other ports (8001–8004) when running locally or in Docker so they do not conflict.
 
 ## Portal API
 

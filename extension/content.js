@@ -129,6 +129,63 @@
     };
   }
 
+  /** Panic overlay: full-page block until user presses "I understood". */
+  let panicOverlayEl = null;
+
+  function showPanicOverlay(status, payload) {
+    if (!document.body) return;
+    if (!panicOverlayEl) {
+      panicOverlayEl = document.createElement('div');
+      panicOverlayEl.id = 'sIsland-panic-overlay';
+      panicOverlayEl.style.cssText = [
+        'position:fixed;inset:0;z-index:2147483647;',
+        'background:rgba(254,247,237,0.97);',
+        'display:flex;flex-direction:column;align-items:center;justify-content:center;',
+        'padding:24px;font-family:Source Sans 3,system-ui,sans-serif;',
+        'box-sizing:border-box;',
+      ].join('');
+      document.body.appendChild(panicOverlayEl);
+    }
+    var title = document.createElement('div');
+    title.style.cssText = 'font-size:1.1rem;font-weight:600;color:#a89880;margin-bottom:16px;';
+    title.textContent = status === 'analyzing' ? 'Checking if this page is safe…' : (status === 'error' ? 'Something went wrong' : 'Is this page safe?');
+    var body = document.createElement('div');
+    body.style.cssText = 'max-width:420px;text-align:center;color:#6b5344;line-height:1.5;margin-bottom:24px;';
+    if (status === 'analyzing') {
+      body.textContent = 'Please wait while we analyze the content.';
+    } else if (status === 'error') {
+      body.textContent = payload && payload.message ? payload.message : 'An error occurred.';
+    } else {
+      body.textContent = (payload && payload.explanation) ? payload.explanation : 'Analysis complete.';
+    }
+    var btnWrap = document.createElement('div');
+    btnWrap.style.cssText = 'margin-top:8px;';
+    if (status !== 'analyzing') {
+      var btn = document.createElement('button');
+      btn.textContent = 'I understood';
+      btn.style.cssText = [
+        'padding:12px 24px;font-size:1rem;font-weight:600;color:#fff;',
+        'background:#0284c7;border:none;border-radius:8px;cursor:pointer;',
+      ].join('');
+      btn.onclick = function () {
+        if (panicOverlayEl && panicOverlayEl.parentNode) {
+          panicOverlayEl.parentNode.removeChild(panicOverlayEl);
+          panicOverlayEl = null;
+        }
+      };
+      btnWrap.appendChild(btn);
+    }
+    panicOverlayEl.innerHTML = '';
+    panicOverlayEl.appendChild(title);
+    panicOverlayEl.appendChild(body);
+    panicOverlayEl.appendChild(btnWrap);
+  }
+
+  function updatePanicOverlay(payload) {
+    if (!panicOverlayEl || !payload) return;
+    showPanicOverlay(payload.status || 'result', payload);
+  }
+
   chrome.runtime.onMessage.addListener(function (msg, _sender, sendResponse) {
     function safeSendResponse(value) {
       try {
@@ -149,6 +206,16 @@
         safeSendResponse(res);
       });
       return true;
+    }
+    if (msg.type === 'SHOW_PANIC_OVERLAY') {
+      showPanicOverlay(msg.status || 'analyzing', msg);
+      safeSendResponse({ ok: true });
+      return false;
+    }
+    if (msg.type === 'UPDATE_PANIC_OVERLAY') {
+      updatePanicOverlay(msg);
+      safeSendResponse({ ok: true });
+      return false;
     }
     return false;
   });

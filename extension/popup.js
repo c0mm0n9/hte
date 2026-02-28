@@ -1,4 +1,4 @@
-const GATEWAY_BASE_URL = (typeof globalThis !== 'undefined' && globalThis.KIDS_SAFETY_CONFIG?.GATEWAY_BASE_URL) || 'http://localhost:8003';
+const GATEWAY_BASE_URL = (typeof globalThis !== 'undefined' && globalThis.KIDS_SAFETY_CONFIG?.GATEWAY_BASE_URL) || 'http://127.0.0.1:8003';
 const AGENT_RUN_URL = GATEWAY_BASE_URL.replace(/\/$/, '') + '/v1/agent/run';
 const STORAGE_KEY = 'kidsSafetyApiKey';
 const STORAGE_MODE = 'kidsSafetyMode';
@@ -317,6 +317,25 @@ openOptionsLink.addEventListener('click', (e) => {
   e.preventDefault();
   chrome.runtime.openOptionsPage();
 });
+
+const panicBtn = document.getElementById('panic-btn');
+if (panicBtn) {
+  panicBtn.addEventListener('click', async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) {
+      log('panic: no active tab');
+      return;
+    }
+    panicBtn.disabled = true;
+    try {
+      chrome.runtime.sendMessage({ type: 'PANIC_REQUEST', tabId: tab.id }, () => {
+        if (chrome.runtime.lastError) log('panic sendMessage error', chrome.runtime.lastError);
+      });
+    } finally {
+      panicBtn.disabled = false;
+    }
+  });
+}
 
 sendBtn.addEventListener('click', sendToAgent);
 
