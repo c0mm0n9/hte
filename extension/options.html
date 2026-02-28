@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kids Safety – Setup</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 14px;
+      margin: 0;
+      padding: 24px;
+      max-width: 480px;
+      color: #1a1a1a;
+      background: #f8f9fa;
+    }
+    h1 { font-size: 18px; font-weight: 600; margin: 0 0 8px 0; color: #333; }
+    p { margin: 0 0 16px 0; color: #495057; line-height: 1.5; }
+    label { display: block; font-weight: 500; margin-bottom: 6px; color: #212529; }
+    input[type="text"] {
+      width: 100%;
+      padding: 10px 12px;
+      font: inherit;
+      border: 1px solid #dee2e6;
+      border-radius: 6px;
+      margin-bottom: 16px;
+    }
+    input[type="text"]:focus {
+      outline: none;
+      border-color: #0d6efd;
+      box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.2);
+    }
+    .hint { font-size: 12px; color: #868e96; margin-top: -8px; margin-bottom: 16px; }
+    button {
+      padding: 10px 20px;
+      font: inherit;
+      font-weight: 500;
+      color: #fff;
+      background: #0d6efd;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    button:hover { background: #0b5ed7; }
+    button.secondary { background: #6c757d; margin-left: 8px; }
+    button.secondary:hover { background: #5c636a; }
+    .status { margin-top: 16px; padding: 10px; border-radius: 6px; font-size: 13px; }
+    .status.success { background: #d1e7dd; color: #0f5132; }
+    .status.error { background: #f8d7da; color: #842029; }
+    .mode-badge { display: inline-block; margin-top: 8px; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 500; }
+    .mode-badge.agent { background: #cfe2ff; color: #084298; }
+    .mode-badge.control { background: #fff3cd; color: #664d03; }
+  </style>
+</head>
+<body>
+  <h1>Kids Safety – API key</h1>
+  <p>Enter the API key from your parent portal. It looks like <code>53c7fbc2-06be-4a5e-b8d2-43b5e0232efd-agent</code> and sets whether this extension runs in Agent or Control mode.</p>
+  <label for="api-key">API key</label>
+  <input type="text" id="api-key" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx-agent" autocomplete="off" />
+  <p class="hint">Suffix <code>-agent</code> = ask-if-real / AI-generated. Suffix <code>-control</code> = blacklist + block.</p>
+  <button type="button" id="save-btn">Save and validate</button>
+  <button type="button" id="clear-btn" class="secondary">Clear key</button>
+  <p style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #dee2e6;"><strong>LLM (optional)</strong></p>
+  <p>Use a local open-source LLM to extract important content from the page before sending to the gateway. Install <a href="https://ollama.com" target="_blank" rel="noopener">Ollama</a> and pull a model (e.g. <code>ollama pull llama3.2</code>).</p>
+  <label for="ollama-url">Ollama URL</label>
+  <input type="text" id="ollama-url" placeholder="http://localhost:11434" autocomplete="off" />
+  <p class="hint">Leave empty to send truncated page text only (no local LLM).</p>
+  <button type="button" id="save-ollama-btn">Save Ollama URL</button>
+  <div id="status" class="status" style="display: none;"></div>
+  <script src="options.js"></script>
+</body>
+</html>

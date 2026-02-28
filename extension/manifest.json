@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Kids Safety",
+  "version": "0.1.0",
+  "description": "Kids Safety: Agent mode (ask if content is real or AI-generated) and Control mode (blacklist + block).",
+  "permissions": ["storage", "activeTab", "tabs", "scripting"],
+  "host_permissions": ["<all_urls>", "http://localhost:8000/*", "http://localhost:8003/*", "http://localhost:11434/*", "http://127.0.0.1:7559/*", "https://*/*"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Kids Safety"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["lib/keywords.js", "lib/pii.js", "lib/processor.js", "content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}
