@@ -267,7 +267,7 @@ export default function PortalPage() {
     setAddDeviceError(null);
     setAddDeviceLoading(true);
     try {
-      await createDevice({
+      const created = await createDevice({
         label,
         device_type: addDeviceType,
         agentic_prompt: addDeviceType === 'control' ? addAgenticPrompt.trim() : undefined,
@@ -275,6 +275,7 @@ export default function PortalPage() {
       setAddLabel('');
       setAddAgenticPrompt('');
       await refreshDashboard();
+      setSelectedDeviceId(created.id);
     } catch (err) {
       setAddDeviceError(err instanceof Error ? err.message : 'Failed to add device');
     } finally {

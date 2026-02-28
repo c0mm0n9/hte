@@ -120,6 +120,8 @@ def api_devices_list(request):
             DeviceWhitelist.objects.get_or_create(device=device, value=value)
         for value in SUGGESTED_BLACKLIST:
             DeviceBlacklist.objects.get_or_create(device=device, value=value)
+        # Refetch with prefetch so response includes whitelist/blacklist
+        device = Device.objects.prefetch_related('whitelist_entries', 'blacklist_entries').get(pk=device.pk)
         return JsonResponse({**_serialize_device(device), 'status': 'created'})
     return JsonResponse({'error': 'Method not allowed'}, status=405)
 

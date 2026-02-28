@@ -78,6 +78,9 @@ function checkAndBlockNavigation(tabId, url) {
           return '';
         }
       })();
+      // Never block Google (search, mail, etc.)
+      const hostLower = (hostname || '').toLowerCase().replace(/^www\./, '');
+      if (hostLower === 'google.com' || hostLower.endsWith('.google.com')) return;
       if (!isHostBlacklisted(hostname, list)) return;
       log('blocking blacklisted:', url);
       const blockedPage = chrome.runtime.getURL('blocked.html?to=' + encodeURIComponent(CONFIG.BLOCKED_REDIRECT_URL));
