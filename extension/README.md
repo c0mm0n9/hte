@@ -2,12 +2,24 @@
 
 Chrome extension (Manifest V3) with **Agent mode** (ask if content is real or AI-generated) and optional reporting/control features.
 
-## Agent mode (current)
+## API key (required)
 
-- Click the extension icon to open the **Agent** popup.
+The portal generates API keys (e.g. `53c7fbc2-06be-4a5e-b8d2-43b5e0232efd-agent`). Before using the extension:
+
+1. Get an API key from the parent portal.
+2. Click the extension icon → **Open extension options to enter API key** (or right‑click the icon → Options).
+3. Paste the key and click **Save and validate**. The suffix sets the mode: `-agent` = Agent mode, `-control` = Control mode.
+4. After saving, the popup shows the correct mode (Agent chat or Control status).
+
+The extension sends the key in the **X-API-Key** header to the gateway. The gateway validates format and mode.
+
+## Agent mode
+
+- In Agent mode, click the extension icon to open the chat popup.
 - Enter a question such as “Is this content real?” or “Is this AI-generated?” and click **Ask agent**.
-- The extension sends the current page URL and your message to the gateway `POST /v1/agent/chat`; the backend uses fact-checking and (if you provide media URLs) media-checking and returns a reply in the popup.
-- **Requires**: Gateway running (see `backend/services/gateway`); optionally fact-checking and media-checking services for full answers.
+- The extension **reads the full page** (text + image/video URLs), optionally runs a **local open-source LLM** (Ollama) to extract important content, then sends to the gateway: **extracted_content**, **media_urls**, **url**, **message**. The gateway uses this for fact-checking and media-checking.
+- **Local LLM**: In Options, set **Ollama URL** (e.g. `http://localhost:11434`) and run Ollama with a model (`ollama pull llama3.2`). The extension sends page text to Ollama to extract key facts; that summary is sent as `extracted_content`. If Ollama is not set, truncated page text is sent.
+- **Requires**: Gateway running (see `gateway/`); optionally fact-checking and media-checking services for full answers.
 
 ## What it does (other / optional)
 

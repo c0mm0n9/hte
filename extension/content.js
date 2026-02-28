@@ -1,10 +1,9 @@
 /**
  * Content script: extracts safe signals from the page (keywords, url/domain).
- * PII is stripped locally; only non-PII data is sent to the background.
+ * Also responds to GET_PAGE_CONTENT with full text + media URLs for the Agent LLM.
  */
 (function () {
   const processor = globalThis.KIDS_SAFETY_PROCESSOR;
-  if (!processor) return;
 
   function getPageText() {
     const body = document.body;
@@ -12,6 +11,37 @@
     const el = document.querySelector('main, article, [role="main"]') || body;
     return (el.innerText || el.textContent || '').slice(0, 50000);
   }
+
+  /** Collect absolute URLs of images and videos on the page (for AI-generated check). */
+  function getMediaUrls() {
+    const urls = new Set();
+    try {
+      document.querySelectorAll('img[src]').forEach(function (img) {
+        try {
+          const u = new URL(img.src, document.baseURI);
+          if (u.protocol === 'http:' || u.protocol === 'https:') urls.add(u.href);
+        } catch (_) {}
+      });
+      document.querySelectorAll('video source[src], video[src]').forEach(function (el) {
+        const src = el.src || el.getAttribute('src');
+        if (!src) return;
+        try {
+          const u = new URL(src, document.baseURI);
+          if (u.protocol === 'http:' || u.protocol === 'https:') urls.add(u.href);
+        } catch (_) {}
+      });
+    } catch (_) {}
+    return Array.from(urls);
+  }
+
+  chrome.runtime.onMessage.addListener(function (msg, _sender, sendResponse) {
+    if (msg.type === 'GET_PAGE_CONTENT') {
+      sendResponse({ text: getPageText(), mediaUrls: getMediaUrls() });
+    }
+    return false;
+  });
+
+  if (!processor) return;
 
   function getUrlAndDomain() {
     try {
