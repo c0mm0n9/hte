@@ -1,0 +1,3 @@
+# Local overrides (e.g. config.local.js)
+*.local.js
+.DS_Store

@@ -1,0 +1,6 @@
+# OS
+.DS_Store
+
+# Local / generated (if you add build or temp files later)
+*.tmp
+*.temp

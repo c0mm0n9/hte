@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kids Safety – Agent</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 13px;
+      margin: 0;
+      padding: 12px;
+      min-width: 320px;
+      max-width: 380px;
+      min-height: 280px;
+      color: #1a1a1a;
+      background: #f8f9fa;
+    }
+    h1 {
+      font-size: 14px;
+      font-weight: 600;
+      margin: 0 0 10px 0;
+      color: #333;
+    }
+    .url-row {
+      margin-bottom: 10px;
+      padding: 6px 8px;
+      background: #e9ecef;
+      border-radius: 6px;
+      font-size: 11px;
+      color: #495057;
+      word-break: break-all;
+    }
+    .url-row strong { color: #212529; }
+    label { display: block; font-weight: 500; margin-bottom: 4px; color: #495057; }
+    textarea {
+      width: 100%;
+      min-height: 72px;
+      padding: 8px;
+      border: 1px solid #dee2e6;
+      border-radius: 6px;
+      font: inherit;
+      resize: vertical;
+      margin-bottom: 8px;
+    }
+    textarea:focus {
+      outline: none;
+      border-color: #0d6efd;
+      box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.2);
+    }
+    button {
+      width: 100%;
+      padding: 8px 12px;
+      font: inherit;
+      font-weight: 500;
+      color: #fff;
+      background: #0d6efd;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    button:hover { background: #0b5ed7; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .reply-box {
+      margin-top: 12px;
+      padding: 10px;
+      background: #fff;
+      border: 1px solid #dee2e6;
+      border-radius: 6px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 12px;
+      line-height: 1.45;
+      min-height: 60px;
+    }
+    .reply-box.empty { color: #868e96; }
+    .reply-box strong { color: #0d6efd; }
+    .error { color: #dc3545; }
+  </style>
+</head>
+<body>
+  <h1>Ask the agent</h1>
+  <p class="url-row"><strong>Page:</strong> <span id="page-url">—</span></p>
+  <label for="message">Your question (e.g. &quot;Is this real?&quot; or &quot;Is this AI-generated?&quot;)</label>
+  <textarea id="message" placeholder="Is the content on this page real? Is it AI-generated?"></textarea>
+  <button type="button" id="send-btn">Ask agent</button>
+  <div id="reply" class="reply-box empty">Reply will appear here.</div>
+  <script src="popup.js"></script>
+</body>
+</html>
