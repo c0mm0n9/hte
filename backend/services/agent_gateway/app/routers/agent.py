@@ -1,12 +1,13 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import Response
 from starlette.datastructures import UploadFile as StarletteUploadFile
 
 from .. import schemas
 from ..config import get_settings, Settings
-from ..service import run_agent
+from ..service import call_media_explanation, run_agent
 
 router = APIRouter(tags=["agent"])
 logger = logging.getLogger("agent_gateway")
@@ -105,12 +106,83 @@ async def agent_run(
         uploaded_files=uploaded_files,
     )
     logger.info(
-        "agent/run done: trust_score=%s fake_facts=%s fake_media=%s true_facts=%s true_media=%s info_graph_nodes=%s",
+        "agent/run done: trust_score=%s fake_facts=%s fake_media=%s true_facts=%s true_media=%s info_graph_nodes=%s content_safety=%s",
         result.trust_score,
         len(result.fake_facts),
         len(result.fake_media),
         len(result.true_facts),
         len(result.true_media),
         len(result.info_graph.nodes) if result.info_graph else 0,
+        result.content_safety,
     )
     return result
+
+
+@router.post("/agent/explain")
+async def agent_explain(
+    payload: schemas.ExplainRequest,
+    settings: Settings = Depends(get_settings),
+) -> Response:
+    """
+    Generate an explanatory video, audio, or flashcards for a trust-score result.
+
+    Body fields:
+      - api_key (required): API key for authentication
+      - response (required): full JSON object from /agent/run
+      - explanation_type (required): "video" | "audio" | "flashcards"
+      - user_prompt (optional): personalisation hint passed to Minimax
+
+    Returns:
+      - video/audio: binary file with appropriate Content-Type and Content-Disposition
+      - flashcards: JSON object {"flashcards": [...]}
+    """
+    validate_api_key(payload.api_key, settings)
+
+    if not settings.media_explanation_url:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Media explanation service is not configured (AGENT_GATEWAY_MEDIA_EXPLANATION_URL not set)",
+        )
+
+    logger.info(
+        "agent/explain request: type=%s user_prompt=%s trust_score=%s",
+        payload.explanation_type,
+        bool(payload.user_prompt),
+        payload.response.trust_score,
+    )
+
+    try:
+        svc_response = await call_media_explanation(
+            agent_response=payload.response.model_dump(),
+            explanation_type=payload.explanation_type,
+            user_prompt=payload.user_prompt,
+            settings=settings,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
+    except Exception as e:
+        logger.exception("media_explanation call failed: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Media explanation service error: {e}",
+        )
+
+    content_type = svc_response.headers.get("content-type", "application/octet-stream")
+    content_disposition = svc_response.headers.get("content-disposition", "")
+
+    logger.info(
+        "agent/explain done: type=%s content_type=%s bytes=%s",
+        payload.explanation_type,
+        content_type,
+        len(svc_response.content),
+    )
+
+    headers: dict[str, str] = {}
+    if content_disposition:
+        headers["Content-Disposition"] = content_disposition
+    elif payload.explanation_type == "video":
+        headers["Content-Disposition"] = 'attachment; filename="explanation.mp4"'
+    elif payload.explanation_type == "audio":
+        headers["Content-Disposition"] = 'attachment; filename="explanation.mp3"'
+
+    return Response(content=svc_response.content, media_type=content_type, headers=headers)

@@ -8,6 +8,7 @@ Flow:
 4. Compile trust_score, fake_facts, fake_media into AgentRunResponse.
 """
 
+import asyncio
 import json
 import logging
 import re
@@ -19,17 +20,21 @@ from .config import Settings
 
 logger = logging.getLogger("agent_gateway")
 from .llm import chat_completions, parse_json_from_content
-from .schemas import AgentRunResponse, FakeFact, FakeMediaChunk, FakeMediaItem, InfoGraph, InfoGraphArticle, InfoGraphEdge, InfoGraphNode, InfoGraphSource, TrueFact
+from .schemas import AgentRunResponse, ContentSafetyScores, FakeFact, FakeMediaChunk, FakeMediaItem, InfoGraph, InfoGraphArticle, InfoGraphEdge, InfoGraphNode, InfoGraphSource, TrueFact
 
 
-ACTIONS_SYSTEM_PROMPT = """You are a safety-analysis agent. Given the user prompt and optional website content, output ONLY a valid JSON array of actions. No markdown, no code fences, no explanation.
+ACTIONS_SYSTEM_PROMPT = """You are a safety-analysis agent. Given the user prompt, output ONLY a valid JSON array of action objects. No wrapper object (e.g. no {"actions": [...]}), no markdown, no code fences, no explanation—just the array.
 Each action is an object with "type" (or "action") and type-specific fields:
 - ai_text_detection: { "type": "ai_text_detection", "text": "<text to send to AI text detector>" }
 - ai_media_detection: { "type": "ai_media_detection", "media_url": "<full http/https URL of image or video>" } (one object per URL; ONLY include this action if media_url is a real http/https URL — never use placeholders like [image1])
 - fact_check: { "type": "fact_check", "facts": ["<fact1>", "<fact2>"] }
-- information_graph: { "type": "information_graph", "website_text": "<the main text content>", "website_url": "<the source URL if known, else empty string>" }
+- information_graph: { "type": "information_graph", "website_url": "<source URL if known, else empty string>" } — website text is supplied by the system from the request; do not include website_text.
+- content_safety: { "type": "content_safety" } — for checking website text for privacy leakage (PIL), harmful content, and unwanted connections. Website text is supplied by the system from the request; do not include website_text.
 If the user has uploaded media files, the system will run media checks on them automatically; you may still add ai_media_detection for any http(s) URLs found in the content.
-Output only the JSON array."""
+If user asks whether they can trust the website, run fact_checking as well as information_graph action.
+IF user asks whether the website is safe, run content_safety action.
+Run ai_media_detection and ai_text_detection every time.
+Output only the JSON array of action objects."""
 
 TRUST_SCORE_SYSTEM_PROMPT = """You are a trust evaluator. Given the results of safety checks (AI text likelihood, media deepfake scores, fact checks, information graph), produce:
 - trust_score: integer 0-100 (0 = completely untrustworthy, 100 = fully trustworthy)
@@ -37,13 +42,7 @@ TRUST_SCORE_SYSTEM_PROMPT = """You are a trust evaluator. Given the results of s
 
 Output ONLY a JSON object with exactly these two keys: {"trust_score": <0-100>, "explanation": "<text>"}. No markdown, no extra keys."""
 
-PROMPT_DRIVEN_SYSTEM = """You are a helpful safety guide. The user has asked a specific question (their prompt) about whether content is safe. You will be given:
-1) The user's prompt (what they want to know, e.g. explain to a child whether this page is safe).
-2) A summary of safety checks (AI text likelihood, media deepfake scores, fact checks, etc.).
-
-Your task: Answer the user's prompt directly in 2-5 sentences, in simple and clear language. Use the safety check results only as evidence to support your answer. The "explanation" must be the direct answer to the user's question, not a generic trust summary. Also output a trust_score 0-100 (0 = not safe, 100 = safe).
-
-Output ONLY a JSON object: {"trust_score": <0-100>, "explanation": "<your direct answer to the user's prompt>"}. No markdown, no extra keys."""
+FACT_EXTRACTION_SYSTEM_PROMPT = """You are a fact-extraction assistant. Given text (e.g. from a web page), extract discrete, checkable factual claims—statements that can be verified as true or false. Output ONLY a JSON array of strings, e.g. ["claim 1", "claim 2"]. No wrapper object, no markdown, no code fences, no explanation. Each array element should be one factual claim."""
 
 
 def _action_type(action: dict[str, Any]) -> str:
@@ -60,16 +59,18 @@ async def get_actions_from_llm(
     """Call LLM; return parsed list of action objects."""
     names = uploaded_file_names or []
     logger.info(
-        "Calling LLM for actions (prompt=%s, website_content_len=%s, uploaded_files=%s)",
+        "Calling LLM for actions (prompt=%s, request_has_website_content=%s, uploaded_files=%s)",
         bool(prompt),
-        len(website_content or ""),
+        bool(website_content),
         len(names),
     )
     user_parts = []
     if prompt:
         user_parts.append(f"User prompt: {prompt}")
     if website_content:
-        user_parts.append(f"Website content:\n{website_content}")
+        user_parts.append(
+            "The user has provided website content for this page; it will be used when running information_graph or content_safety. Do not include website_text in your action objects."
+        )
     if names:
         user_parts.append(
             f"The user has also uploaded the following media file(s) for safety check (filenames): {', '.join(names)}. "
@@ -91,13 +92,66 @@ async def get_actions_from_llm(
     except (ValueError, json.JSONDecodeError) as e:
         logger.warning("Failed to parse LLM actions JSON: %s", e)
         return []
+    # Contract: actions call returns only a list; tolerate wrapper object for robustness
     if isinstance(parsed, list):
-        # Accept either "action" or "type" as the action kind (LLM may return "type")
-        actions = [a for a in parsed if isinstance(a, dict) and (a.get("action") or a.get("type"))]
-        logger.info("Parsed %s actions: %s", len(actions), [_action_type(a) for a in actions])
-        return actions
-    logger.warning("LLM response was not a list, got %s", type(parsed).__name__)
-    return []
+        raw_list = parsed
+    elif isinstance(parsed, dict):
+        raw_list = parsed.get("actions") or parsed.get("actions_list")
+        if not isinstance(raw_list, list):
+            logger.warning("LLM response was a dict but no list at 'actions' or 'actions_list', got %s", type(raw_list).__name__)
+            return []
+    else:
+        logger.warning("LLM response was not a list or dict, got %s", type(parsed).__name__)
+        return []
+    # Accept either "action" or "type" as the action kind (LLM may return "type")
+    actions = [a for a in raw_list if isinstance(a, dict) and (a.get("action") or a.get("type"))]
+    logger.info("Parsed %s actions: %s", len(actions), [_action_type(a) for a in actions])
+    return actions
+
+
+# Max website content length to send to fact-extraction LLM (avoid token limits)
+FACT_EXTRACTION_MAX_TEXT_LENGTH = 30000
+
+
+async def extract_facts_from_website_text(website_content: str, settings: Settings) -> list[str]:
+    """Call LLM to extract checkable factual claims from website text; return list of fact strings."""
+    text = (website_content or "").strip()
+    if not text:
+        return []
+    if len(text) > FACT_EXTRACTION_MAX_TEXT_LENGTH:
+        text = text[:FACT_EXTRACTION_MAX_TEXT_LENGTH] + "\n[... truncated]"
+    logger.info("Calling LLM for fact extraction (text_len=%s)", len(text))
+    user_message = "Extract checkable factual claims from the following text:\n\n" + text
+    try:
+        content = await chat_completions(
+            settings,
+            system_prompt=FACT_EXTRACTION_SYSTEM_PROMPT,
+            user_message=user_message,
+        )
+    except Exception as e:
+        logger.warning("Fact extraction LLM call failed: %s", e)
+        return []
+    if not content:
+        logger.warning("Fact extraction LLM returned empty content")
+        return []
+    try:
+        parsed = parse_json_from_content(content)
+    except (ValueError, json.JSONDecodeError) as e:
+        logger.warning("Failed to parse fact extraction JSON: %s", e)
+        return []
+    if isinstance(parsed, list):
+        raw_list = parsed
+    elif isinstance(parsed, dict):
+        raw_list = parsed.get("facts")
+        if not isinstance(raw_list, list):
+            logger.warning("Fact extraction response was dict but no list at 'facts', got %s", type(raw_list).__name__)
+            return []
+    else:
+        logger.warning("Fact extraction response was not list or dict, got %s", type(parsed).__name__)
+        return []
+    facts = [str(x).strip() for x in raw_list if isinstance(x, str) and str(x).strip()]
+    logger.info("Extracted %s facts from website text", len(facts))
+    return facts
 
 
 async def run_ai_text_detection(text: str, settings: Settings) -> dict[str, Any]:
@@ -195,6 +249,29 @@ async def run_fact_check(fact: str, settings: Settings) -> dict[str, Any]:
         return {"error": str(e), "truth_value": True, "explanation": str(e)}
 
 
+async def run_content_safety(website_text: str, settings: Settings) -> dict[str, Any]:
+    """POST to content_safety service; return JSON with pil, harmful, unwanted or error stub."""
+    url = (settings.content_safety_url or "").rstrip("/")
+    if not url:
+        logger.warning("content_safety skipped: CONTENT_SAFETY_URL not set")
+        return {"error": "CONTENT_SAFETY_URL not set", "pil": None, "harmful": None, "unwanted": None}
+    timeout = settings.content_safety_timeout_seconds
+    logger.info("Calling content_safety (text_len=%s timeout=%s)", len(website_text), timeout)
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.post(
+                f"{url}/v1/content-safety/check",
+                json={"website_text": website_text},
+            )
+            r.raise_for_status()
+        out = r.json()
+        logger.info("content_safety ok pil=%s harmful=%s unwanted=%s", out.get("pil"), out.get("harmful"), out.get("unwanted"))
+        return out
+    except Exception as e:
+        logger.warning("content_safety error: %s", e)
+        return {"error": str(e), "pil": None, "harmful": None, "unwanted": None}
+
+
 async def run_info_graph(website_text: str, website_url: str, settings: Settings) -> dict[str, Any]:
     """POST to info_graph service; return JSON graph or error stub."""
     url = (settings.info_graph_url or "").rstrip("/")
@@ -268,18 +345,33 @@ async def execute_action(
             )
         return (action_type, await run_media_check(media_url, settings))
     if action_type == "fact_check":
-        facts = action.get("facts") or []
-        if not isinstance(facts, list):
-            facts = [facts] if facts else []
-        results = []
-        for f in facts:
-            if isinstance(f, str) and f.strip():
-                results.append(await run_fact_check(f.strip(), settings))
-        return (action_type, {"facts": results})
+        facts_to_check: list[str] = []
+        if request_website_content and request_website_content.strip():
+            facts_to_check = await extract_facts_from_website_text(request_website_content.strip(), settings)
+            if not facts_to_check:
+                # Fall back to action-provided facts when extraction returns empty
+                raw = action.get("facts") or []
+                if not isinstance(raw, list):
+                    raw = [raw] if raw else []
+                facts_to_check = [f.strip() for f in raw if isinstance(f, str) and f.strip()]
+        else:
+            raw = action.get("facts") or []
+            if not isinstance(raw, list):
+                raw = [raw] if raw else []
+            facts_to_check = [f.strip() for f in raw if isinstance(f, str) and f.strip()]
+        # Run fact-check API calls in parallel (after extraction; no concurrent extraction + check)
+        tasks = [run_fact_check(f, settings) for f in facts_to_check if f]
+        results = await asyncio.gather(*tasks) if tasks else []
+        return (action_type, {"facts": list(results)})
     if action_type == "information_graph":
         website_text = action.get("website_text") or action.get("text") or (request_website_content or "")
         website_url = action.get("website_url") or action.get("url") or (request_website_url or "")
         return (action_type, await run_info_graph(website_text, website_url, settings))
+    if action_type == "content_safety":
+        website_text = action.get("website_text") or action.get("text") or (request_website_content or "")
+        if not (website_text or website_text.strip()):
+            return (action_type, {"error": "missing website_text", "pil": None, "harmful": None, "unwanted": None})
+        return (action_type, await run_content_safety(website_text.strip(), settings))
     logger.warning("Unknown action type=%s", action_type)
     return (action_type, {})
 
@@ -287,10 +379,9 @@ async def execute_action(
 async def run_trust_score_llm(
     action_results: list[tuple[str, Any]],
     settings: Settings,
-    user_prompt: str | None = None,
 ) -> tuple[int, str]:
-    """Second LLM call: produce trust_score and explanation. If user_prompt is set, the explanation is a direct answer to that prompt (e.g. for the child)."""
-    logger.info("Calling LLM for trust score (action_results_count=%s, has_user_prompt=%s)", len(action_results), bool(user_prompt))
+    """Second LLM call: summarize results and get trust_score + explanation."""
+    logger.info("Calling LLM for trust score (action_results_count=%s)", len(action_results))
 
     summary_parts = ["Summary of safety checks:\n"]
     for kind, data in action_results:
@@ -322,27 +413,24 @@ async def run_trust_score_llm(
             summary_parts.append(
                 f"[information_graph]: nodes={nodes_count} edges={edges_count} related_articles={articles_count}"
             )
+        elif kind == "content_safety":
+            if data.get("error"):
+                summary_parts.append(f"[content_safety]: error={data.get('error')}")
+            else:
+                summary_parts.append(
+                    f"[content_safety]: pil={data.get('pil')} harmful={data.get('harmful')} unwanted={data.get('unwanted')}"
+                )
         else:
             summary_parts.append(f"[{kind}]: {json.dumps(data, default=str)[:500]}")
 
-    if user_prompt and user_prompt.strip():
-        system_prompt = PROMPT_DRIVEN_SYSTEM
-        user_message = (
-            f"User's question / prompt: {user_prompt.strip()}\n\n"
-            "Safety check results:\n"
-            + "\n".join(summary_parts)
-            + '\n\nOutput only a JSON object: {"trust_score": <0-100>, "explanation": "<your direct answer to the user\'s question in 2-5 sentences>"}'
-        )
-    else:
-        system_prompt = TRUST_SCORE_SYSTEM_PROMPT
-        user_message = (
-            "\n".join(summary_parts)
-            + '\n\nOutput only a JSON object: {"trust_score": <0-100>, "explanation": "<2-4 sentences>"}'
-        )
+    user_message = (
+        "\n".join(summary_parts)
+        + '\n\nOutput only a JSON object: {"trust_score": <0-100>, "explanation": "<2-4 sentences>"}'
+    )
 
     content = await chat_completions(
         settings,
-        system_prompt=system_prompt,
+        system_prompt=TRUST_SCORE_SYSTEM_PROMPT,
         user_message=user_message,
     )
     logger.info("LLM trust_score response length=%s", len(content or ""))
@@ -552,6 +640,26 @@ def build_info_graph_result(action_results: list[tuple[str, Any]]) -> Optional[I
     return None
 
 
+def build_content_safety_result(action_results: list[tuple[str, Any]]) -> Optional[ContentSafetyScores]:
+    """Extract the first successful content_safety result into ContentSafetyScores."""
+    for kind, data in action_results:
+        if kind != "content_safety":
+            continue
+        if data.get("error"):
+            continue
+        pil = data.get("pil")
+        harmful = data.get("harmful")
+        unwanted = data.get("unwanted")
+        if pil is None and harmful is None and unwanted is None:
+            continue
+        return ContentSafetyScores(
+            pil=float(pil) if isinstance(pil, (int, float)) else 0.0,
+            harmful=float(harmful) if isinstance(harmful, (int, float)) else 0.0,
+            unwanted=float(unwanted) if isinstance(unwanted, (int, float)) else 0.0,
+        )
+    return None
+
+
 async def run_agent(
     prompt: str | None,
     website_content: str | None,
@@ -579,17 +687,20 @@ async def run_agent(
         for i in range(len(files))
     ]
     all_actions = injected_actions + actions
-    action_results: list[tuple[str, Any]] = []
-
-    for i, act in enumerate(all_actions):
-        kind, result = await execute_action(
-            act,
-            settings,
-            request_website_url=website_url,
-            request_website_content=website_content,
-            uploaded_files=files if files else None,
-        )
-        action_results.append((kind, result))
+    # Execute all actions in parallel (independent API/LLM calls; no shared state)
+    action_results = await asyncio.gather(
+        *[
+            execute_action(
+                act,
+                settings,
+                request_website_url=website_url,
+                request_website_content=website_content,
+                uploaded_files=files if files else None,
+            )
+            for act in all_actions
+        ]
+    )
+    for i, (kind, result) in enumerate(action_results):
         if result.get("error"):
             logger.warning(
                 "Action %s/%s (%s) had error: %s",
@@ -599,16 +710,17 @@ async def run_agent(
                 result.get("error"),
             )
 
-    trust_score, trust_score_explanation = await run_trust_score_llm(action_results, settings, user_prompt=prompt)
+    trust_score, trust_score_explanation = await run_trust_score_llm(action_results, settings)
     ai_text_score = build_ai_text_score(action_results)
     fake_facts = build_fake_facts(action_results)
     true_facts = build_true_facts(action_results)
     fake_media = build_fake_media(action_results)
     true_media = build_true_media(action_results)
     info_graph = build_info_graph_result(action_results)
+    content_safety = build_content_safety_result(action_results)
 
     logger.info(
-        "Compiled response: trust_score=%s ai_text_score=%s fake_facts=%s true_facts=%s fake_media=%s true_media=%s info_graph_nodes=%s",
+        "Compiled response: trust_score=%s ai_text_score=%s fake_facts=%s true_facts=%s fake_media=%s true_media=%s info_graph_nodes=%s content_safety=%s",
         trust_score,
         ai_text_score,
         len(fake_facts),
@@ -616,6 +728,7 @@ async def run_agent(
         len(fake_media),
         len(true_media),
         len(info_graph.nodes) if info_graph else 0,
+        content_safety,
     )
 
     return AgentRunResponse(
@@ -627,4 +740,50 @@ async def run_agent(
         true_facts=true_facts,
         true_media=true_media,
         info_graph=info_graph,
+        content_safety=content_safety,
     )
+
+
+async def call_media_explanation(
+    agent_response: dict[str, Any],
+    explanation_type: str,
+    user_prompt: str | None,
+    settings: Settings,
+) -> httpx.Response:
+    """POST to media_explanation service; return the raw httpx.Response for streaming."""
+    url = (settings.media_explanation_url or "").rstrip("/")
+    if not url:
+        raise ValueError("MEDIA_EXPLANATION_URL not configured")
+    timeout = settings.media_explanation_timeout_seconds
+    logger.info(
+        "Calling media_explanation: type=%s user_prompt=%s timeout=%s",
+        explanation_type,
+        bool(user_prompt),
+        timeout,
+    )
+    client = httpx.AsyncClient(timeout=timeout)
+    try:
+        r = await client.post(
+            f"{url}/v1/explain/generate",
+            json={
+                "response": agent_response,
+                "explanation_type": explanation_type,
+                "user_prompt": user_prompt,
+            },
+        )
+        r.raise_for_status()
+        logger.info(
+            "media_explanation ok: status=%s content_type=%s bytes=%s",
+            r.status_code,
+            r.headers.get("content-type"),
+            len(r.content),
+        )
+        return r
+    except httpx.HTTPStatusError as e:
+        logger.warning("media_explanation HTTP error: %s", e)
+        raise
+    except Exception as e:
+        logger.warning("media_explanation error: %s", e)
+        raise
+    finally:
+        await client.aclose()
