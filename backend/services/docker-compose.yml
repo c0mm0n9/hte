@@ -1,0 +1,43 @@
+# All backend services under backend/services/
+# Create .env from .env.example in each service dir for API keys (fact_checking has .env.example).
+# If .env is missing, create an empty file or remove the env_file key for that service.
+services:
+  media_checking:
+    build:
+      context: media_checking
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    container_name: hte-media-checking
+    env_file:
+      - media_checking/.env
+
+  fact_checking:
+    build:
+      context: fact_checking
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    container_name: hte-fact-checking
+    env_file:
+      - fact_checking/.env
+
+  ai_text_detector:
+    build:
+      context: ai_text_detector
+      dockerfile: Dockerfile
+    ports:
+      - "8002:8002"
+    container_name: hte-ai-text-detector
+    env_file:
+      - ai_text_detector/.env
+
+  agent_gateway:
+    build:
+      context: agent_gateway
+      dockerfile: Dockerfile
+    ports:
+      - "8003:8003"
+    container_name: hte-agent-gateway
+    env_file:
+      - agent_gateway/.env
