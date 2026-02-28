@@ -16,7 +16,10 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(BASE_DIR.parent / '.env')
+# Load .env from backend directory; also try backend/backend/.env as fallback
+_env_dir = BASE_DIR.parent
+load_dotenv(str(_env_dir / '.env'))
+load_dotenv(str(BASE_DIR / '.env'))
 
 
 # Quick-start development settings - unsuitable for production
@@ -84,17 +87,22 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
-# Use PostgreSQL when POSTGRES_DB is set (e.g. with Docker); otherwise SQLite for local dev.
+# Use PostgreSQL when POSTGRES_DB or POSTGRES_HOST is set (e.g. from .env); otherwise SQLite.
 
-if os.environ.get('POSTGRES_DB'):
+_use_postgres = (
+    (os.environ.get('POSTGRES_DB') or '').strip() != ''
+    or (os.environ.get('POSTGRES_HOST') or '').strip() != ''
+)
+
+if _use_postgres:
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
-            'NAME': os.environ.get('POSTGRES_DB', 'hte'),
-            'USER': os.environ.get('POSTGRES_USER', 'postgres'),
-            'PASSWORD': os.environ.get('POSTGRES_PASSWORD', ''),
-            'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
-            'PORT': os.environ.get('POSTGRES_PORT', '5432'),
+            'NAME': (os.environ.get('POSTGRES_DB') or 'hte').strip(),
+            'USER': (os.environ.get('POSTGRES_USER') or 'postgres').strip(),
+            'PASSWORD': (os.environ.get('POSTGRES_PASSWORD') or '').strip(),
+            'HOST': (os.environ.get('POSTGRES_HOST') or 'localhost').strip(),
+            'PORT': (os.environ.get('POSTGRES_PORT') or '5432').strip(),
             'OPTIONS': {'connect_timeout': 5},
         }
     }
