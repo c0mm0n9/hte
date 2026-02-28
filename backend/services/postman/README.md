@@ -1,6 +1,13 @@
 # Postman API tests for HTE backend
 
-Use these files in [Postman] to test the backend containers (Agent Gateway, Media Checking, Fact Checking).
+Use these files in [Postman] to test all backend AI service containers.
+
+## Collections
+
+| File | Description |
+|------|-------------|
+| **HTE-All-AI-Services.postman_collection.json** | **Recommended.** Single collection with all AI services and Postman tests for every request. |
+| HTE-Backend-API-Tests.postman_collection.json | Legacy: Agent Gateway, Media Checking, Fact Checking only (no AI Text Detector or Info Graph). |
 
 ## Prerequisites
 
@@ -9,39 +16,37 @@ Use these files in [Postman] to test the backend containers (Agent Gateway, Medi
    cd backend/services
    docker compose up -d
    ```
-2. **Agent Gateway** → `http://localhost:8003` (ensure `agent_gateway/.env` has LLM and service URLs; set `AGENT_GATEWAY_ALLOWED_API_KEYS=test-key` to use the test requests, or leave empty to skip key validation)
-3. **Media Checking** → `http://localhost:8000`
-4. **Fact Checking** → `http://localhost:8001` (ensure `fact_checking/.env` has provider API keys if you run fact-check requests)
+2. Service URLs (default with Docker):
+   - **Media Checking** → `http://localhost:8000`
+   - **Fact Checking** → `http://localhost:8001` (ensure `fact_checking/.env` has provider API keys for fact-check requests)
+   - **AI Text Detector** → `http://localhost:8002` (ensure `ai_text_detector/.env` has provider API keys)
+   - **Agent Gateway** → `http://localhost:8003` (ensure `agent_gateway/.env` has LLM and service URLs; set `AGENT_GATEWAY_ALLOWED_API_KEYS=test-key` for test requests, or leave empty to skip key validation)
+   - **Info Graph** → `http://localhost:8004` (ensure `info_graph/.env` has provider API keys)
 
 ## Import into Postman
 
 1. Open Postman (app or web).
-2. **Import collection**: Collections → **Import** → **Import from Postman** → choose `HTE-Backend-API-Tests.postman_collection.json`.  
+2. **Import collection**: Collections → **Import** → **Import from Postman** → choose `HTE-All-AI-Services.postman_collection.json`.  
    When prompted, allow **experimental script import** so test scripts (assertions) are imported.
 3. **Import environment** (optional): Environments → **Import** → **Import from Postman** → choose `HTE-Backend-Local.postman_environment.json`.
-4. Select the **HTE Backend (Local)** environment in the environment dropdown so `{{media_base}}`, `{{fact_base}}`, and `{{agent_base}}` resolve.
+4. Select the **HTE Backend (Local)** environment so `{{media_base}}`, `{{fact_base}}`, `{{ai_text_detector_base}}`, `{{agent_base}}`, and `{{info_graph_base}}` resolve.
 
-## What’s in the collection
+## What’s in HTE-All-AI-Services
 
-| Request | Service | Purpose |
-|--------|---------|--------|
-| **Health check** | Agent | `GET /healthz` → expect `{ "status": "ok" }` |
-| **Agent run (prompt only)** | Agent | `POST /v1/agent/run` with `api_key`, `prompt` → expect `trust_score`, `fake_facts`, `fake_media` |
-| **Agent run (prompt + website_content)** | Agent | `POST /v1/agent/run` with `api_key`, `prompt`, `website_content` |
-| **Agent run – invalid body (4xx)** | Agent | `POST /v1/agent/run` without `api_key` → expect 422 |
-| **Health check** | Media | `GET /healthz` → expect `{ "status": "ok" }` |
-| **Media check (image URL)** | Media | `POST /v1/media/check` with local sample `{{media_base}}/samples/sample.png` |
-| **Deepfake check (video URL)** | Media | `POST /v1/deepfake/check` with local sample `{{media_base}}/samples/sample.mp4` (add `sample.mp4` to `media_checking/samples/` for video tests) |
-| **Media check – missing media_url (400)** | Media | `POST /v1/media/check` with invalid body → expect 400 |
-| **Health check** | Fact | `GET /healthz` → expect `{ "status": "ok" }` |
-| **Fact check** | Fact | `POST /v1/fact/check` with a fact string → check response shape |
+Every request has **tests** (status code and response shape). Run a request and check the **Test Results** panel.
 
-Each request has **tests** that run after the response (e.g. status code, required fields). Run a request and check the **Test Results** (or equivalent) panel to see pass/fail.
+| Folder | Requests | Purpose |
+|--------|----------|--------|
+| **Agent Gateway Service** | Health check; Agent run (prompt only); Agent run (prompt + website_content); Agent run – invalid body (4xx) | `GET /healthz`, `POST /v1/agent/run` |
+| **Media Checking Service** | Health check; Media check (image URL); Deepfake check (video URL); Media/Deepfake upload; Invalid body (4xx) | `GET /healthz`, `POST /v1/media/check`, `POST /v1/deepfake/check`, upload variants |
+| **Fact Checking Service** | Health check; Fact check | `GET /healthz`, `POST /v1/fact/check` |
+| **AI Text Detector Service** | Health check; POST ai-detect (success, short text); POST ai-detect (empty/whitespace/missing – 400/422) | `GET /healthz`, `POST /v1/ai-detect` |
+| **Info Graph Service** | Health check; Build info graph; Build – invalid body (422) | `GET /healthz`, `POST /v1/info-graph/build` |
 
 ## Running tests
 
 - Send each request manually and review the test results for that request.
-- If you use a runner or CLI that supports Postman/Postman collections, you can run the whole collection against the **HTE Backend (Local)** environment.
+- Or run the whole collection: Collection → **Run** → choose **HTE All AI Services** and **HTE Backend (Local)** → Run. All requests run in sequence and tests are reported.
 
 ## Variables
 
@@ -49,13 +54,17 @@ The collection and environment define:
 
 - `media_base` = `http://localhost:8000` (Media Checking)
 - `fact_base` = `http://localhost:8001` (Fact Checking)
+- `ai_text_detector_base` = `http://localhost:8002` (AI Text Detector)
 - `agent_base` = `http://localhost:8003` (Agent Gateway)
+- `info_graph_base` = `http://localhost:8004` (Info Graph)
 
-Change these in the environment (or in the collection variables) to point at another host/port (e.g. staging).
+Change these in the environment to point at another host/port (e.g. staging).
 
 ## Media checking and local files
 
 Media check requests use **local sample files** served by the Media Checking service at `GET /samples/<filename>`:
 
 - **sample.png** is included in `media_checking/samples/` (minimal 1×1 PNG). The “Media check (image URL)” request uses `{{media_base}}/samples/sample.png`.
-- For **video** tests, add your own `sample.mp4` to `media_checking/samples/`. The “Deepfake check (video URL)” request uses `{{media_base}}/samples/sample.mp4`. Rebuild the media_checking container after adding files so they are copied into the image, or mount the `samples` folder when running Docker.
+- For **video** tests, add your own `sample.mp4` to `media_checking/samples/`. Rebuild the media_checking container after adding files, or mount the `samples` folder when running Docker.
+
+Upload requests (Media check – upload image file, Deepfake check – upload video file) require you to set the file path in the request body to a local file on your machine.

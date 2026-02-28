@@ -1,6 +1,7 @@
 from .base import MediaProvider  # noqa: F401
 from .hive_ai import HiveAIMediaProvider  # noqa: F401
 from .local_sample import LocalSampleMediaProvider  # noqa: F401
+from .sightengine import SightengineMediaProvider  # noqa: F401
 
 
 def get_provider(name: str) -> MediaProvider:
@@ -9,4 +10,6 @@ def get_provider(name: str) -> MediaProvider:
         return HiveAIMediaProvider()
     if normalized in {"local_sample", "local"}:
         return LocalSampleMediaProvider()
+    if normalized in {"sightengine"}:
+        return SightengineMediaProvider()
     raise ValueError(f"Unknown media provider '{name}'")

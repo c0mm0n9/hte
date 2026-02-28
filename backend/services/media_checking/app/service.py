@@ -71,6 +71,14 @@ async def run_image_detection(
         )
         provider = get_provider(settings.provider_name)
 
+        full_result = await provider.score_media_file(
+            media_path, "image", "input_image", mime_type or "image/jpeg", settings
+        )
+        if full_result is not None:
+            full_result.media_url = media_url
+            logger.info("Image detection complete (full-file) url=%s chunks=%s", media_url, len(full_result.chunks))
+            return full_result
+
         chunk = VideoChunk(
             index=0,
             path=media_path,
@@ -103,9 +111,19 @@ async def run_video_detection(
 ) -> MediaCheckResponse:
     temp_dir = None
     try:
-        temp_dir, video_path, _ = await download_media_to_temp(
+        temp_dir, video_path, mime_type = await download_media_to_temp(
             media_url, settings, filename="input_video"
         )
+        provider = get_provider(settings.provider_name)
+
+        full_result = await provider.score_media_file(
+            video_path, "video", "input_video", mime_type or "video/mp4", settings
+        )
+        if full_result is not None:
+            full_result.media_url = media_url
+            logger.info("Video detection complete (full-file) url=%s chunks=%s", media_url, len(full_result.chunks))
+            return full_result
+
         duration = probe_video_duration(video_path, settings)
 
         chunks = chunk_video(
@@ -116,7 +134,6 @@ async def run_video_detection(
             max_chunks_override=max_chunks,
         )
 
-        provider = get_provider(settings.provider_name)
         sem = asyncio.Semaphore(settings.hive_max_concurrency)
 
         async def _score_one(chunk: VideoChunk):
@@ -193,6 +210,14 @@ async def run_image_detection_from_path(
     settings: Settings,
 ) -> MediaCheckResponse:
     provider = get_provider(settings.provider_name)
+
+    full_result = await provider.score_media_file(
+        media_path, "image", filename, mime_type or "image/jpeg", settings
+    )
+    if full_result is not None:
+        logger.info("Image detection from path complete (full-file) filename=%s chunks=%s", filename, len(full_result.chunks))
+        return full_result
+
     chunk = VideoChunk(
         index=0,
         path=media_path,
@@ -218,6 +243,15 @@ async def run_video_detection_from_path(
     max_chunks: Optional[int],
     settings: Settings,
 ) -> MediaCheckResponse:
+    provider = get_provider(settings.provider_name)
+
+    full_result = await provider.score_media_file(
+        video_path, "video", filename, "video/mp4", settings
+    )
+    if full_result is not None:
+        logger.info("Video detection from path complete (full-file) filename=%s chunks=%s", filename, len(full_result.chunks))
+        return full_result
+
     duration = probe_video_duration(video_path, settings)
     chunks = chunk_video(
         video_path=video_path,
@@ -226,7 +260,6 @@ async def run_video_detection_from_path(
         chunk_seconds_override=chunk_seconds,
         max_chunks_override=max_chunks,
     )
-    provider = get_provider(settings.provider_name)
     sem = asyncio.Semaphore(settings.hive_max_concurrency)
 
     async def _score_one(chunk: VideoChunk):

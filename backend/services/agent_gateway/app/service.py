@@ -19,7 +19,7 @@ from .config import Settings
 
 logger = logging.getLogger("agent_gateway")
 from .llm import chat_completions, parse_json_from_content
-from .schemas import AgentRunResponse, FakeFact, FakeMediaChunk, FakeMediaItem, TrueFact
+from .schemas import AgentRunResponse, FakeFact, FakeMediaChunk, FakeMediaItem, InfoGraph, InfoGraphArticle, InfoGraphEdge, InfoGraphNode, InfoGraphSource, TrueFact
 
 
 ACTIONS_SYSTEM_PROMPT = """You are a safety-analysis agent. Given the user prompt and optional website content, output ONLY a valid JSON array of actions. No markdown, no code fences, no explanation.
@@ -27,7 +27,8 @@ Each action is an object with "type" (or "action") and type-specific fields:
 - ai_text_detection: { "type": "ai_text_detection", "text": "<text to send to AI text detector>" }
 - ai_media_detection: { "type": "ai_media_detection", "media_url": "<full http/https URL of image or video>" } (one object per URL; ONLY include this action if media_url is a real http/https URL — never use placeholders like [image1])
 - fact_check: { "type": "fact_check", "facts": ["<fact1>", "<fact2>"] }
-- information_graph: { "type": "information_graph" }
+- information_graph: { "type": "information_graph", "website_text": "<the main text content>", "website_url": "<the source URL if known, else empty string>" }
+If the user has uploaded media files, the system will run media checks on them automatically; you may still add ai_media_detection for any http(s) URLs found in the content.
 Output only the JSON array."""
 
 TRUST_SCORE_SYSTEM_PROMPT = """You are a trust evaluator. Given the results of safety checks (AI text likelihood, media deepfake scores, fact checks, information graph), produce:
@@ -46,14 +47,26 @@ async def get_actions_from_llm(
     prompt: str | None,
     website_content: str | None,
     settings: Settings,
+    uploaded_file_names: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Call LLM; return parsed list of action objects."""
-    logger.info("Calling LLM for actions (prompt=%s, website_content_len=%s)", bool(prompt), len(website_content or ""))
+    names = uploaded_file_names or []
+    logger.info(
+        "Calling LLM for actions (prompt=%s, website_content_len=%s, uploaded_files=%s)",
+        bool(prompt),
+        len(website_content or ""),
+        len(names),
+    )
     user_parts = []
     if prompt:
         user_parts.append(f"User prompt: {prompt}")
     if website_content:
         user_parts.append(f"Website content:\n{website_content}")
+    if names:
+        user_parts.append(
+            f"The user has also uploaded the following media file(s) for safety check (filenames): {', '.join(names)}. "
+            "The system will run a media (deepfake/AI) check on each of these."
+        )
     user_message = "\n\n".join(user_parts) if user_parts else "Analyze for safety and output the JSON array of actions."
     system = settings.llm_system_prompt.strip() or ACTIONS_SYSTEM_PROMPT
     content = await chat_completions(
@@ -174,13 +187,46 @@ async def run_fact_check(fact: str, settings: Settings) -> dict[str, Any]:
         return {"error": str(e), "truth_value": True, "explanation": str(e)}
 
 
+async def run_info_graph(website_text: str, website_url: str, settings: Settings) -> dict[str, Any]:
+    """POST to info_graph service; return JSON graph or error stub."""
+    url = (settings.info_graph_url or "").rstrip("/")
+    if not url:
+        logger.warning("info_graph skipped: INFO_GRAPH_URL not set")
+        return {"error": "INFO_GRAPH_URL not set", "nodes": [], "edges": [], "related_articles": []}
+    timeout = settings.info_graph_timeout_seconds
+    logger.info("Calling info_graph (website_url=%s text_len=%s timeout=%s)", website_url[:80], len(website_text), timeout)
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.post(
+                f"{url}/v1/info-graph/build",
+                json={"website_text": website_text, "website_url": website_url},
+            )
+            r.raise_for_status()
+        out = r.json()
+        logger.info("info_graph ok nodes=%s edges=%s", len(out.get("nodes") or []), len(out.get("edges") or []))
+        return out
+    except Exception as e:
+        logger.warning("info_graph error: %s", e)
+        return {"error": str(e), "nodes": [], "edges": [], "related_articles": []}
+
+
+def _is_upload_placeholder(media_url: str) -> bool:
+    """True if media_url indicates an uploaded file (upload:0, upload:1, or upload:filename)."""
+    s = (media_url or "").strip()
+    return s.startswith("upload:")
+
+
 async def execute_action(
     action: dict[str, Any],
     settings: Settings,
+    request_website_url: str | None = None,
+    request_website_content: str | None = None,
+    uploaded_files: list[tuple[bytes, str, str]] | None = None,
 ) -> tuple[str, Any]:
     """
     Execute one action. Returns (action_type, result).
-    Accepts "action" or "type" field. For information_graph, returns ("information_graph", stub).
+    request_website_url and request_website_content are used as fallbacks for information_graph when the LLM does not provide them.
+    uploaded_files: used when ai_media_detection has media_url like upload:0 or upload:filename.
     """
     action_type = _action_type(action)
     logger.info("Executing action type=%s", action_type)
@@ -193,6 +239,25 @@ async def execute_action(
         media_url = action.get("media_url") or ""
         if not media_url.strip():
             return (action_type, {"error": "missing media_url", "chunks": [], "media_url": ""})
+        if _is_upload_placeholder(media_url) and uploaded_files:
+            suffix = media_url.strip()[7:]  # after "upload:"
+            try:
+                idx = int(suffix)
+            except ValueError:
+                idx = None
+            if idx is not None and 0 <= idx < len(uploaded_files):
+                file_bytes, filename, content_type = uploaded_files[idx]
+                result = await run_media_check_upload(file_bytes, filename, content_type, settings)
+                return (action_type, result)
+            # match by filename if suffix is not an integer
+            for file_bytes, filename, content_type in uploaded_files:
+                if filename == suffix:
+                    result = await run_media_check_upload(file_bytes, filename, content_type, settings)
+                    return (action_type, result)
+            return (
+                action_type,
+                {"error": f"uploaded file not found: {suffix!r}", "chunks": [], "media_url": media_url},
+            )
         return (action_type, await run_media_check(media_url, settings))
     if action_type == "fact_check":
         facts = action.get("facts") or []
@@ -204,8 +269,9 @@ async def execute_action(
                 results.append(await run_fact_check(f.strip(), settings))
         return (action_type, {"facts": results})
     if action_type == "information_graph":
-        logger.info("information_graph: skeleton (no external call)")
-        return (action_type, {"status": "skeleton", "message": "Service in development"})
+        website_text = action.get("website_text") or action.get("text") or (request_website_content or "")
+        website_url = action.get("website_url") or action.get("url") or (request_website_url or "")
+        return (action_type, await run_info_graph(website_text, website_url, settings))
     logger.warning("Unknown action type=%s", action_type)
     return (action_type, {})
 
@@ -241,7 +307,12 @@ async def run_trust_score_llm(
                 exp = item.get("explanation") or ""
                 summary_parts.append(f"[fact_check]: truth_value={tv} explanation={exp[:300]}")
         elif kind == "information_graph":
-            summary_parts.append(f"[information_graph]: {json.dumps(data, default=str)[:500]}")
+            nodes_count = len(data.get("nodes") or [])
+            edges_count = len(data.get("edges") or [])
+            articles_count = len(data.get("related_articles") or [])
+            summary_parts.append(
+                f"[information_graph]: nodes={nodes_count} edges={edges_count} related_articles={articles_count}"
+            )
         else:
             summary_parts.append(f"[{kind}]: {json.dumps(data, default=str)[:500]}")
 
@@ -402,33 +473,112 @@ def build_true_media(action_results: list[tuple[str, Any]]) -> list[FakeMediaIte
     return out
 
 
+def build_info_graph_result(action_results: list[tuple[str, Any]]) -> Optional[InfoGraph]:
+    """Extract and map the first successful information_graph result into an InfoGraph model."""
+    for kind, data in action_results:
+        if kind != "information_graph":
+            continue
+        if data.get("error"):
+            continue
+        source_raw = data.get("source") or {}
+        source = InfoGraphSource(
+            url=source_raw.get("url") or "",
+            title=source_raw.get("title") or "",
+        ) if source_raw else None
+
+        nodes = [
+            InfoGraphNode(
+                id=str(n.get("id") or ""),
+                type=str(n.get("type") or "entity"),
+                label=str(n.get("label") or ""),
+                description=str(n.get("description") or ""),
+                source_url=n.get("source_url") or None,
+            )
+            for n in (data.get("nodes") or [])
+            if isinstance(n, dict)
+        ]
+
+        def _edge_weight(e: dict) -> Optional[float]:
+            w = e.get("weight")
+            if w is None:
+                return None
+            try:
+                return float(w)
+            except (TypeError, ValueError):
+                return None
+
+        edges = [
+            InfoGraphEdge(
+                id=str(e.get("id") or ""),
+                source=str(e.get("source") or ""),
+                target=str(e.get("target") or ""),
+                relation=str(e.get("relation") or "related_to"),
+                weight=_edge_weight(e),
+            )
+            for e in (data.get("edges") or [])
+            if isinstance(e, dict)
+        ]
+
+        articles = [
+            InfoGraphArticle(
+                url=str(a.get("url") or ""),
+                title=str(a.get("title") or ""),
+                snippet=str(a.get("snippet") or ""),
+            )
+            for a in (data.get("related_articles") or [])
+            if isinstance(a, dict) and a.get("url")
+        ]
+
+        return InfoGraph(source=source, nodes=nodes, edges=edges, related_articles=articles)
+    return None
+
+
 async def run_agent(
     prompt: str | None,
     website_content: str | None,
     settings: Settings,
-    uploaded_file: tuple[bytes, str, str] | None = None,
+    uploaded_files: list[tuple[bytes, str, str]] | None = None,
+    website_url: str | None = None,
 ) -> AgentRunResponse:
     """
     Full pipeline: get actions from LLM -> execute via APIs -> trust score LLM -> compile response.
 
-    uploaded_file: optional (file_bytes, filename, content_type) for direct media upload checks.
+    uploaded_files: optional list of (file_bytes, filename, content_type) for direct media upload checks.
+    website_url: optional URL of the page being analyzed; passed to information_graph when the LLM does not provide it.
     """
-    logger.info("run_agent started uploaded_file=%s", uploaded_file[1] if uploaded_file else None)
-    actions = await get_actions_from_llm(prompt, website_content, settings)
+    files = uploaded_files or []
+    logger.info(
+        "run_agent started uploaded_files=%s website_url=%s",
+        [f[1] for f in files] if files else [],
+        (website_url or "")[:80] if website_url else None,
+    )
+    actions = await get_actions_from_llm(
+        prompt, website_content, settings, uploaded_file_names=[f[1] for f in files]
+    )
+    injected_actions = [
+        {"type": "ai_media_detection", "media_url": f"upload:{i}"}
+        for i in range(len(files))
+    ]
+    all_actions = injected_actions + actions
     action_results: list[tuple[str, Any]] = []
 
-    # If a file was uploaded directly, run media check on it first (bypasses URL fetch)
-    if uploaded_file:
-        file_bytes, filename, content_type = uploaded_file
-        logger.info("Running direct media upload check for filename=%s", filename)
-        upload_result = await run_media_check_upload(file_bytes, filename, content_type, settings)
-        action_results.append(("ai_media_detection", upload_result))
-
-    for i, act in enumerate(actions):
-        kind, result = await execute_action(act, settings)
+    for i, act in enumerate(all_actions):
+        kind, result = await execute_action(
+            act,
+            settings,
+            request_website_url=website_url,
+            request_website_content=website_content,
+            uploaded_files=files if files else None,
+        )
         action_results.append((kind, result))
         if result.get("error"):
-            logger.warning("Action %s/%s (%s) had error: %s", i + 1, len(actions), kind, result.get("error"))
+            logger.warning(
+                "Action %s/%s (%s) had error: %s",
+                i + 1,
+                len(all_actions),
+                kind,
+                result.get("error"),
+            )
 
     trust_score, trust_score_explanation = await run_trust_score_llm(action_results, settings)
     ai_text_score = build_ai_text_score(action_results)
@@ -436,15 +586,17 @@ async def run_agent(
     true_facts = build_true_facts(action_results)
     fake_media = build_fake_media(action_results)
     true_media = build_true_media(action_results)
+    info_graph = build_info_graph_result(action_results)
 
     logger.info(
-        "Compiled response: trust_score=%s ai_text_score=%s fake_facts=%s true_facts=%s fake_media=%s true_media=%s",
+        "Compiled response: trust_score=%s ai_text_score=%s fake_facts=%s true_facts=%s fake_media=%s true_media=%s info_graph_nodes=%s",
         trust_score,
         ai_text_score,
         len(fake_facts),
         len(true_facts),
         len(fake_media),
         len(true_media),
+        len(info_graph.nodes) if info_graph else 0,
     )
 
     return AgentRunResponse(
@@ -455,4 +607,5 @@ async def run_agent(
         fake_media=fake_media,
         true_facts=true_facts,
         true_media=true_media,
+        info_graph=info_graph,
     )
