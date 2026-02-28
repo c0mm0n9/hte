@@ -1,5 +1,5 @@
 import httpx
-from typing import Optional
+from typing import List, Optional, Tuple
 
 from .settings import Settings
 
@@ -17,7 +17,7 @@ async def fact_check(fact: str, settings: Settings) -> Optional[dict]:
 
 
 async def media_check(media_url: str, settings: Settings) -> Optional[dict]:
-    """Call media-checking service. Returns dict with media_type, chunks (ai_generated_score, label), etc."""
+    """Call media-checking service by URL. Returns dict with media_type, chunks, etc."""
     url = f"{settings.media_check_base_url.rstrip('/')}/v1/media/check"
     try:
         async with httpx.AsyncClient(timeout=settings.media_check_timeout_seconds) as client:
@@ -26,6 +26,101 @@ async def media_check(media_url: str, settings: Settings) -> Optional[dict]:
             return r.json()
     except Exception:
         return None
+
+
+async def media_check_upload(
+    settings: Settings,
+    file_bytes: bytes,
+    filename: str,
+    content_type: str,
+) -> Optional[dict]:
+    """Call media-checking service with uploaded file. Returns dict with media_type, chunks, etc."""
+    upload_url = f"{settings.media_check_base_url.rstrip('/')}/v1/media/check/upload"
+    try:
+        async with httpx.AsyncClient(timeout=settings.media_check_timeout_seconds) as client:
+            r = await client.post(
+                upload_url,
+                files={"file": (filename, file_bytes, content_type)},
+            )
+            r.raise_for_status()
+            return r.json()
+    except Exception:
+        return None
+
+
+def _format_media_verdict(url_or_name: str, data: Optional[dict]) -> str:
+    if not data:
+        return "could not be classified"
+    chunks = data.get("chunks") or []
+    labels = [c.get("label") for c in chunks if c.get("label")]
+    ai_scores = [c.get("ai_generated_score") for c in chunks if c.get("ai_generated_score") is not None]
+    if labels:
+        if any(l in ("ai_generated", "deepfake") for l in labels):
+            return "likely AI-generated or synthetic"
+        return "does not appear to be AI-generated"
+    if ai_scores:
+        avg = sum(ai_scores) / len(ai_scores)
+        return "likely AI-generated" if avg >= 0.5 else "likely not AI-generated"
+    return "could not be classified"
+
+
+async def build_analyze_reply(
+    masked_text: str,
+    message: str,
+    page_url: str,
+    send_fact_check: bool,
+    send_media_check: bool,
+    uploaded_files: List[Tuple[bytes, str, str]],
+    video_urls: List[str],
+    settings: Settings,
+    media_urls: Optional[List[str]] = None,
+) -> str:
+    """Build reply from masked text (fact check) and uploaded/URL media (media_check)."""
+    parts = []
+    media_urls = media_urls or []
+
+    if send_fact_check:
+        text = (masked_text or "").strip()
+        if text:
+            result = await fact_check(text, settings)
+            if result:
+                truth = result.get("truth_value", None)
+                explanation = result.get("explanation", "") or "No explanation provided."
+                if truth is True:
+                    parts.append(f"**Fact check:** The content appears to be accurate or supported. {explanation}")
+                elif truth is False:
+                    parts.append(f"**Fact check:** The content may not be accurate. {explanation}")
+                else:
+                    parts.append(f"**Fact check:** {explanation}")
+            else:
+                parts.append("**Fact check:** The fact-checking service is temporarily unavailable.")
+        else:
+            parts.append("**Fact check:** No page text was received. Reload the page and try again.")
+
+    if send_media_check:
+        media_results = []
+        for file_bytes, filename, content_type in uploaded_files:
+            data = await media_check_upload(settings, file_bytes, filename, content_type)
+            verdict = _format_media_verdict(filename, data)
+            media_results.append((filename, verdict))
+        seen = set()
+        for url in (video_urls[:5] + list(media_urls))[:10]:
+            if url in seen:
+                continue
+            seen.add(url)
+            data = await media_check(url, settings)
+            verdict = _format_media_verdict(url, data)
+            label = url[:60] + "..." if len(url) > 60 else url
+            media_results.append((label, verdict))
+        if media_results:
+            lines = ["**Media / AI-generated check:**"]
+            for name, verdict in media_results:
+                lines.append(f"- {name}: {verdict}")
+            parts.append("\n".join(lines))
+        else:
+            parts.append("**Media check:** No images or videos were sent to check.")
+
+    return "\n\n".join(parts) if parts else "Nothing to analyze. Enable fact check and/or media check and try again."
 
 
 def _intent_is_fact(message: str) -> bool:

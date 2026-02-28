@@ -3,16 +3,35 @@
  * Also responds to GET_PAGE_CONTENT with full text + media URLs for the Agent LLM.
  */
 (function () {
+  const DEBUG = true;
+  function log(...args) {
+    if (DEBUG) console.log('[Kids Safety Content]', ...args);
+  }
+
   const processor = globalThis.KIDS_SAFETY_PROCESSOR;
 
   function getPageText() {
     const body = document.body;
-    if (!body) return '';
-    const el = document.querySelector('main, article, [role="main"]') || body;
-    return (el.innerText || el.textContent || '').slice(0, 50000);
+    if (!body) {
+      log('getPageText: no document.body');
+      return '';
+    }
+    const selectors = ['main', 'article', '[role="main"]', '.article-body', '.post-content', '.content', '.entry-content', '.story-body'];
+    let el = body;
+    for (const sel of selectors) {
+      const found = document.querySelector(sel);
+      if (found && (found.innerText || found.textContent || '').length > 100) {
+        el = found;
+        break;
+      }
+    }
+    const raw = (el.innerText || el.textContent || '').trim();
+    const out = (raw || (document.body && (document.body.innerText || document.body.textContent || '').trim()) || '').slice(0, 50000);
+    log('getPageText: el=', el.tagName, 'text length=', out.length);
+    return out;
   }
 
-  /** Collect absolute URLs of images and videos on the page (for AI-generated check). */
+  /** Collect absolute URLs of images and videos on the page. */
   function getMediaUrls() {
     const urls = new Set();
     try {
@@ -34,12 +53,93 @@
     return Array.from(urls);
   }
 
+  const MAX_IMAGES = 5;
+  const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+  const MAX_VIDEOS = 1;
+  const MAX_VIDEO_BYTES = 5 * 1024 * 1024;
+
+  function blobToBase64(blob) {
+    return new Promise(function (resolve, reject) {
+      const r = new FileReader();
+      r.onload = function () {
+        const dataUrl = r.result;
+        const base64 = dataUrl.indexOf(',') >= 0 ? dataUrl.split(',')[1] : dataUrl;
+        resolve(base64);
+      };
+      r.onerror = reject;
+      r.readAsDataURL(blob);
+    });
+  }
+
+  async function fetchAsBase64(url, maxBytes) {
+    try {
+      const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
+      if (!res.ok) return null;
+      const blob = await res.blob();
+      if (blob.size > maxBytes) return null;
+      const contentType = blob.type || 'application/octet-stream';
+      const base64 = await blobToBase64(blob);
+      return { url, base64, contentType };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function getPageContentWithMedia() {
+    const text = getPageText();
+    const mediaUrls = getMediaUrls();
+    const imageUrls = [];
+    const videoUrls = [];
+    mediaUrls.forEach(function (u) {
+      const lower = u.toLowerCase();
+      if (/\.(mp4|webm|ogg|mov|avi|mkv)(\?|$)/.test(lower) || lower.includes('video')) {
+        videoUrls.push(u);
+      } else {
+        imageUrls.push(u);
+      }
+    });
+
+    const imageBlobs = [];
+    for (let i = 0; i < Math.min(MAX_IMAGES, imageUrls.length); i++) {
+      const r = await fetchAsBase64(imageUrls[i], MAX_IMAGE_BYTES);
+      if (r) imageBlobs.push(r);
+    }
+
+    const videoBlobs = [];
+    for (let i = 0; i < Math.min(MAX_VIDEOS, videoUrls.length); i++) {
+      const r = await fetchAsBase64(videoUrls[i], MAX_VIDEO_BYTES);
+      if (r) videoBlobs.push(r);
+    }
+
+    return {
+      text,
+      mediaUrls,
+      imageBlobs,
+      videoBlobs,
+      videoUrls: videoUrls.slice(0, 5),
+      imageUrls: imageUrls.slice(0, 10),
+    };
+  }
+
   chrome.runtime.onMessage.addListener(function (msg, _sender, sendResponse) {
     if (msg.type === 'GET_PAGE_CONTENT') {
-      sendResponse({ text: getPageText(), mediaUrls: getMediaUrls() });
+      const text = getPageText();
+      const mediaUrls = getMediaUrls();
+      log('GET_PAGE_CONTENT: text length=', text.length, 'mediaUrls=', mediaUrls.length);
+      sendResponse({ text, mediaUrls });
+      return false;
+    }
+    if (msg.type === 'GET_PAGE_CONTENT_WITH_MEDIA') {
+      log('GET_PAGE_CONTENT_WITH_MEDIA: start');
+      getPageContentWithMedia().then(function (res) {
+        log('GET_PAGE_CONTENT_WITH_MEDIA: done text length=', (res && res.text || '').length);
+        sendResponse(res);
+      });
+      return true;
     }
     return false;
   });
+  log('content script loaded, message listener attached');
 
   if (!processor) return;
 

@@ -1,70 +1,58 @@
 /**
- * PII detection and redaction. Used only locally; redacted content must never be sent.
+ * PII detection and masking. Replaces with NAME1, ADDRESS1, EMAIL1, etc.
+ * Used only locally; masked content is safe to send to gateway.
  */
 const PII_PATTERNS = [
-  {
-    name: 'email',
-    regex: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g,
-    replace: '[EMAIL]',
-  },
-  {
-    name: 'phone',
-    regex: /(\+?\d{1,3}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{2,4}[-.\s]?\d{2,4}([-.\s]?\d{2,4})?/g,
-    replace: '[PHONE]',
-  },
-  {
-    name: 'ssn',
-    regex: /\b\d{3}-\d{2}-\d{4}\b/g,
-    replace: '[SSN]',
-  },
-  {
-    name: 'credit_card',
-    regex: /\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/g,
-    replace: '[CARD]',
-  },
-  // Simple address-like (number + street name) – can be expanded
-  {
-    name: 'address_like',
-    regex: /\b\d{1,6}\s+[\w\s]{3,40}(street|st|avenue|ave|road|rd|drive|dr|lane|ln|way|blvd)\b/gi,
-    replace: '[ADDRESS]',
-  },
+  { name: 'email', regex: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, placeholder: 'EMAIL' },
+  { name: 'phone', regex: /(\+?\d{1,3}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{2,4}[-.\s]?\d{2,4}([-.\s]?\d{2,4})?/g, placeholder: 'PHONE' },
+  { name: 'ssn', regex: /\b\d{3}-\d{2}-\d{4}\b/g, placeholder: 'SSN' },
+  { name: 'credit_card', regex: /\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/g, placeholder: 'CARD' },
+  { name: 'address_like', regex: /\b\d{1,6}\s+[\w\s]{3,40}(street|st|avenue|ave|road|rd|drive|dr|lane|ln|way|blvd)\b/gi, placeholder: 'ADDRESS' },
+  // Simple name-like: two or more consecutive capitalized words (e.g. "John Smith", "Dr. Jane Doe")
+  { name: 'name', regex: /\b(?:Mr\.|Mrs\.|Ms\.|Dr\.)?\s*[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b/g, placeholder: 'NAME' },
 ];
 
 /**
- * Redact PII from text. Returns { redacted: string, detectedTypes: string[] }.
+ * Mask PII in text. Replaces with NAME1, ADDRESS1, EMAIL1, etc. (numbered per type).
+ * Returns { masked: string, detectedTypes: string[] }.
  */
-function redactPII(text) {
+function maskPII(text) {
   if (!text || typeof text !== 'string') {
-    return { redacted: '', detectedTypes: [] };
+    return { masked: '', detectedTypes: [] };
   }
-  let redacted = text;
+  let masked = text;
   const detectedTypes = new Set();
 
-  for (const { name, regex, replace: repl } of PII_PATTERNS) {
-    const re = new RegExp(regex.source, regex.flags);
-    if (re.test(redacted)) {
+  for (const { name, regex, placeholder } of PII_PATTERNS) {
+    let counter = 0;
+    masked = masked.replace(new RegExp(regex.source, regex.flags), () => {
       detectedTypes.add(name);
-    }
-    redacted = redacted.replace(new RegExp(regex.source, regex.flags), repl);
+      counter += 1;
+      return placeholder + counter;
+    });
   }
 
   return {
-    redacted,
+    masked,
     detectedTypes: [...detectedTypes],
   };
 }
 
-/**
- * Check if text contains PII (for deciding whether to skip sending).
- */
+/** Legacy: same as maskPII but returns redacted/detectedTypes keys. */
+function redactPII(text) {
+  const { masked, detectedTypes } = maskPII(text);
+  return { redacted: masked, detectedTypes };
+}
+
 function hasPII(text) {
   if (!text || typeof text !== 'string') return false;
   for (const { regex } of PII_PATTERNS) {
-    if (regex.test(text)) return true;
+    const re = new RegExp(regex.source, regex.flags);
+    if (re.test(text)) return true;
   }
   return false;
 }
 
 if (typeof globalThis !== 'undefined') {
-  globalThis.KIDS_SAFETY_PII = { redactPII, hasPII, PII_PATTERNS };
+  globalThis.KIDS_SAFETY_PII = { maskPII, redactPII, hasPII, PII_PATTERNS };
 }

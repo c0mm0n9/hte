@@ -52,9 +52,13 @@
     <p class="url-row"><strong>Page:</strong> <span id="page-url">—</span></p>
     <label for="message">Your question (e.g. &quot;Is this real?&quot; or &quot;Is this AI-generated?&quot;)</label>
     <textarea id="message" placeholder="Is the content on this page real? Is it AI-generated?"></textarea>
-    <button type="button" id="send-btn">Ask agent</button>
+    <p style="margin: 8px 0;"><label style="display: inline; margin-right: 12px;"><input type="checkbox" id="send-fact-check" checked /> Fact check (masked text)</label></p>
+    <p style="margin: 0 0 8px 0;"><label style="display: inline;"><input type="checkbox" id="send-media-check" checked /> Media check (images/videos)</label></p>
+    <button type="button" id="send-btn">Analyze page</button>
     <div id="reply" class="reply-box empty">Reply will appear here.</div>
   </div>
+  <script src="config.js"></script>
+  <script src="lib/pii.js"></script>
   <script src="lib/llm.js"></script>
   <script src="popup.js"></script>
 </body>

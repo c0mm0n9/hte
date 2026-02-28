@@ -1,8 +1,9 @@
-from typing import Optional
+import json
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile, status
 
-from ..agent_service import build_agent_reply
+from ..agent_service import build_agent_reply, build_analyze_reply
 from ..auth import parse_api_key
 from ..schemas import AgentChatRequest, AgentChatResponse
 from ..settings import Settings, get_settings
@@ -44,5 +45,52 @@ async def agent_chat(
         media_urls=payload.media_urls,
         settings=settings,
         extracted_content=payload.extracted_content,
+    )
+    return AgentChatResponse(reply=reply)
+
+
+@router.post("/analyze", response_model=AgentChatResponse)
+async def agent_analyze(
+    masked_text: str = Form(""),
+    message: str = Form(""),
+    page_url: str = Form(""),
+    send_fact_check: str = Form("true"),
+    send_media_check: str = Form("true"),
+    video_urls: str = Form("[]"),
+    media_urls: str = Form("[]"),
+    files: List[UploadFile] = File(default=[]),
+    settings: Settings = Depends(get_settings),
+    api_key: str = Depends(require_api_key),
+) -> AgentChatResponse:
+    """Analyze page: masked text → fact_check; uploaded files + media_urls → media_check."""
+    do_fact = send_fact_check.lower() in ("1", "true", "yes")
+    do_media = send_media_check.lower() in ("1", "true", "yes")
+    try:
+        video_list = json.loads(video_urls) if video_urls else []
+    except Exception:
+        video_list = []
+    try:
+        media_list = json.loads(media_urls) if media_urls else []
+    except Exception:
+        media_list = []
+
+    uploaded: List[tuple] = []
+    for f in files:
+        if not f.filename:
+            continue
+        data = await f.read()
+        if data:
+            uploaded.append((data, f.filename, f.content_type or "application/octet-stream"))
+
+    reply = await build_analyze_reply(
+        masked_text=masked_text,
+        message=message,
+        page_url=page_url,
+        send_fact_check=do_fact,
+        send_media_check=do_media,
+        uploaded_files=uploaded,
+        video_urls=video_list,
+        settings=settings,
+        media_urls=media_list,
     )
     return AgentChatResponse(reply=reply)
