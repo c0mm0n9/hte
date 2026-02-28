@@ -51,8 +51,42 @@ class FakeMediaItem(BaseModel):
     chunks: list[FakeMediaChunk] = Field(default_factory=list)
 
 
+class InfoGraphNode(BaseModel):
+    id: str
+    type: str
+    label: str
+    description: str
+    source_url: Optional[str] = None
+
+
+class InfoGraphEdge(BaseModel):
+    id: str
+    source: str
+    target: str
+    relation: str
+    weight: Optional[float] = None
+
+
+class InfoGraphArticle(BaseModel):
+    url: str
+    title: str
+    snippet: str
+
+
+class InfoGraphSource(BaseModel):
+    url: str
+    title: str
+
+
+class InfoGraph(BaseModel):
+    source: Optional[InfoGraphSource] = None
+    nodes: list[InfoGraphNode] = Field(default_factory=list)
+    edges: list[InfoGraphEdge] = Field(default_factory=list)
+    related_articles: list[InfoGraphArticle] = Field(default_factory=list)
+
+
 class AgentRunResponse(BaseModel):
-    """Structured result: trust_score, explanation, ai_text_score, fake_facts, fake_media, true_facts, true_media."""
+    """Structured result: trust_score, explanation, ai_text_score, fake_facts, fake_media, true_facts, true_media, info_graph."""
 
     trust_score: int = Field(..., ge=0, le=100, description="Trust score 0-100 from LLM")
     trust_score_explanation: str = Field(
@@ -67,3 +101,4 @@ class AgentRunResponse(BaseModel):
     fake_media: list[FakeMediaItem] = Field(default_factory=list, description="Media flagged as AI-generated/deepfake (high scores)")
     true_facts: list[TrueFact] = Field(default_factory=list, description="Facts with truth_value true from fact_checking")
     true_media: list[FakeMediaItem] = Field(default_factory=list, description="Media not flagged as fake (low scores)")
+    info_graph: Optional[InfoGraph] = Field(default=None, description="Information graph built from source article + related articles")

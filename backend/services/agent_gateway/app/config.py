@@ -20,9 +20,10 @@ class Settings(BaseSettings):
     ai_text_detector_url: str = "http://ai_text_detector:8002"
     media_checking_url: str = "http://media_checking:8000"
     fact_checking_url: str = "http://fact_checking:8001"
-    info_graph_url: Optional[str] = None       # future use; not called in this phase
+    info_graph_url: Optional[str] = None
 
     service_timeout_seconds: float = 30.0
+    info_graph_timeout_seconds: float = 180.0
 
     class Config:
         env_prefix = "AGENT_GATEWAY_"

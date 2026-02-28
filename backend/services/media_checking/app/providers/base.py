@@ -1,9 +1,10 @@
 from abc import ABC, abstractmethod
-from typing import Optional
+from pathlib import Path
+from typing import Literal, Optional
 
 from ..config import Settings
 from ..media import VideoChunk
-from ..schemas import ChunkResult
+from ..schemas import ChunkResult, MediaCheckResponse
 
 
 class MediaProvider(ABC):
@@ -14,6 +15,20 @@ class MediaProvider(ABC):
         settings: Settings,
     ) -> ChunkResult:
         ...
+
+    async def score_media_file(
+        self,
+        path: Path,
+        media_type: Literal["image", "video"],
+        filename: str,
+        mime_type: str,
+        settings: Settings,
+    ) -> Optional[MediaCheckResponse]:
+        """Override to handle the full file directly without ffmpeg chunking.
+
+        Return None to fall back to the default chunk-based pipeline.
+        """
+        return None
 
 
 def label_from_scores(
