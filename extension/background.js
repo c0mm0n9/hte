@@ -1,6 +1,6 @@
 const CONFIG = {
-  PORTAL_API_BASE: 'http://localhost:8000',
-  GATEWAY_BASE_URL: 'http://localhost:8003',
+  PORTAL_API_BASE: 'http://127.0.0.1:8000',
+  GATEWAY_BASE_URL: 'http://127.0.0.1:8003',
   BLOCKED_REDIRECT_URL: 'https://qweasdzxcsssssss.com',
 };
 
@@ -125,6 +125,68 @@ function recordVisit(apiKey, url, title, has_harmful_content, has_pii, has_preda
   });
 }
 
+function runPanicFlow(tabId, apiKey) {
+  const portalBase = (CONFIG.PORTAL_API_BASE || '').replace(/\/$/, '');
+  const gatewayBase = (CONFIG.GATEWAY_BASE_URL || '').replace(/\/$/, '');
+  const agentRunUrl = gatewayBase + '/v1/agent/run';
+  const validateUrl = portalBase + '/api/portal/validate/?api_key=' + encodeURIComponent(apiKey);
+
+  function sendOverlay(msg) {
+    try {
+      chrome.tabs.sendMessage(tabId, msg).catch(function (e) {
+        log('panic sendOverlay error', e?.message);
+      });
+    } catch (e) {
+      log('panic sendOverlay throw', e?.message);
+    }
+  }
+
+  sendOverlay({ type: 'SHOW_PANIC_OVERLAY', status: 'analyzing' });
+
+  fetch(validateUrl)
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      if (!data.valid || !data.mode) {
+        sendOverlay({ type: 'UPDATE_PANIC_OVERLAY', status: 'error', message: data.error || 'Invalid API key.' });
+        return;
+      }
+      var prompt = (data.mode === 'control' && data.prompt) ? data.prompt : 'Analyze this content and explain in simple terms whether it is safe for a child.';
+      return chrome.tabs.sendMessage(tabId, { type: 'GET_PAGE_CONTENT' })
+        .then(function (content) {
+          var text = (content && content.text) ? content.text : '';
+          var mediaUrls = (content && content.mediaUrls) ? content.mediaUrls : [];
+          var websiteContent = (text || '').trim().slice(0, 12000);
+          if (mediaUrls.length > 0) {
+            websiteContent += '\n\nMedia URLs on this page:\n' + mediaUrls.slice(0, 20).join('\n');
+          }
+          return fetch(agentRunUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              api_key: apiKey,
+              prompt: prompt,
+              website_content: websiteContent.slice(0, 50000),
+            }),
+          });
+        })
+        .then(function (res) {
+          if (!res.ok) {
+            return res.text().then(function (t) {
+              sendOverlay({ type: 'UPDATE_PANIC_OVERLAY', status: 'error', message: 'Could not get an answer. Try again.' });
+            });
+          }
+          return res.json().then(function (data) {
+            var explanation = (data.trust_score_explanation || '').trim() || ('Trust score: ' + (data.trust_score != null ? data.trust_score : '?') + ' / 100.');
+            sendOverlay({ type: 'UPDATE_PANIC_OVERLAY', status: 'result', explanation: explanation, trust_score: data.trust_score });
+          });
+        });
+    })
+    .catch(function (e) {
+      log('panic flow error', e?.message);
+      sendOverlay({ type: 'UPDATE_PANIC_OVERLAY', status: 'error', message: 'Could not connect. Check your connection and try again.' });
+    });
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'PAGE_SIGNAL' && message.payload) {
     log('PAGE_SIGNAL received (report posting disabled)', message.payload?.url);
@@ -142,6 +204,21 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       );
     });
     sendResponse({ ok: true });
+  }
+  if (message.type === 'PANIC_REQUEST' && message.tabId) {
+    chrome.storage.local.get(['kidsSafetyApiKey'], function (data) {
+      var apiKey = data.kidsSafetyApiKey;
+      if (!apiKey) {
+        try {
+          chrome.tabs.sendMessage(message.tabId, { type: 'UPDATE_PANIC_OVERLAY', status: 'error', message: 'No API key set. Open extension options to add your key.' });
+        } catch (_) {}
+        sendResponse({ ok: false });
+        return;
+      }
+      runPanicFlow(message.tabId, apiKey);
+      sendResponse({ ok: true });
+    });
+    return true;
   }
   return true;
 });

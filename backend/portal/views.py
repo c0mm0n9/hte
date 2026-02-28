@@ -1,10 +1,31 @@
 import json
+import uuid as uuid_module
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET, require_POST, require_http_methods
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
 from .models import Device, DeviceWhitelist, DeviceBlacklist, VisitedSite
+
+
+def _parse_api_key(key):
+    """Parse api_key string into (uuid_str, device_type) or (None, None). Accepts -agent as -agentic."""
+    if not key or not isinstance(key, str):
+        return None, None
+    key = key.strip()
+    uuid_part, sep, type_part = key.rpartition('-')
+    if not sep or not uuid_part or not type_part:
+        return None, None
+    type_part = type_part.lower().strip()
+    if type_part == 'agent':
+        type_part = Device.TYPE_AGENTIC
+    if type_part not in (Device.TYPE_CONTROL, Device.TYPE_AGENTIC):
+        return None, None
+    try:
+        parsed = uuid_module.UUID(uuid_part)
+        return str(parsed), type_part
+    except (ValueError, TypeError):
+        return None, None
 
 # Predetermined suggested lists (parent can add these in one click)
 SUGGESTED_WHITELIST = [
@@ -203,21 +224,21 @@ def api_visited_sites_list(request, device_id=None):
 @csrf_exempt
 @require_GET
 def api_validate_key(request):
-    """Validate API key for extension. GET ?api_key=<key>. Returns { valid, mode } (mode: control | agentic)."""
+    """Validate API key for extension. GET ?api_key=<key>. Returns { valid, mode } (mode: control | agentic). When mode is control, also returns prompt (parent-defined prompt for the device)."""
     api_key = (request.GET.get('api_key') or '').strip()
     if not api_key:
         return JsonResponse({'valid': False, 'error': 'api_key required'}, status=400)
-    key = api_key
-    uuid_part, sep, type_part = key.rpartition('-')
-    if not sep or not uuid_part or not type_part:
+    uuid_str, device_type = _parse_api_key(api_key)
+    if uuid_str is None:
         return JsonResponse({'valid': False, 'error': 'Invalid api_key format'}, status=400)
-    if type_part not in (Device.TYPE_CONTROL, Device.TYPE_AGENTIC):
-        return JsonResponse({'valid': False, 'error': 'Invalid api_key type'}, status=400)
     try:
-        device = Device.objects.get(uuid=uuid_part, device_type=type_part)
+        device = Device.objects.get(uuid=uuid_str, device_type=device_type)
     except Device.DoesNotExist:
         return JsonResponse({'valid': False, 'error': 'Device not found'}, status=404)
-    return JsonResponse({'valid': True, 'mode': device.device_type})
+    payload = {'valid': True, 'mode': device.device_type}
+    if device.device_type == Device.TYPE_CONTROL:
+        payload['prompt'] = device.agentic_prompt or ''
+    return JsonResponse(payload)
 
 
 @csrf_exempt
@@ -227,13 +248,11 @@ def api_blacklist(request):
     api_key = (request.GET.get('api_key') or '').strip()
     if not api_key:
         return JsonResponse({'error': 'api_key required'}, status=400)
-    uuid_part, sep, type_part = api_key.rpartition('-')
-    if not sep or not uuid_part or not type_part:
+    uuid_str, device_type = _parse_api_key(api_key)
+    if uuid_str is None:
         return JsonResponse({'error': 'Invalid api_key format'}, status=400)
-    if type_part not in (Device.TYPE_CONTROL, Device.TYPE_AGENTIC):
-        return JsonResponse({'error': 'Invalid api_key type'}, status=400)
     try:
-        device = Device.objects.get(uuid=uuid_part, device_type=type_part)
+        device = Device.objects.get(uuid=uuid_str, device_type=device_type)
     except Device.DoesNotExist:
         return JsonResponse({'error': 'Device not found'}, status=404)
     values = list(device.blacklist_entries.values_list('value', flat=True))
@@ -273,14 +292,11 @@ def api_record_visit(request):
 
     device = None
     if isinstance(api_key, str) and api_key.strip():
-        key = api_key.strip()
-        uuid_part, sep, type_part = key.rpartition('-')
-        if not sep or not uuid_part or not type_part:
+        uuid_str, device_type = _parse_api_key(api_key.strip())
+        if uuid_str is None:
             return JsonResponse({'error': 'Invalid api_key format'}, status=400)
-        if type_part not in (Device.TYPE_CONTROL, Device.TYPE_AGENTIC):
-            return JsonResponse({'error': 'Invalid api_key type'}, status=400)
         try:
-            device = Device.objects.get(uuid=uuid_part, device_type=type_part)
+            device = Device.objects.get(uuid=uuid_str, device_type=device_type)
         except Device.DoesNotExist:
             return JsonResponse({'error': 'Device not found'}, status=404)
     else:

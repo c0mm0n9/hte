@@ -405,7 +405,7 @@ export default function PortalPage() {
           <p className="font-medium text-red-800 dark:text-red-400">Error loading dashboard</p>
           <p className="mt-1 text-sm text-red-700 dark:text-red-500">{error}</p>
           <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">
-            Make sure the backend is running at {process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}
+            Make sure the backend is running at {process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}
           </p>
           <Link href="/login" className="mt-3 inline-block text-sm text-blue-600 hover:underline dark:text-blue-400">
             Go to login

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+// Use 127.0.0.1 so Django is reachable when localhost resolves to IPv6 (::1)
 const DJANGO_API = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
 
 function getCookieHeader(request: NextRequest): string {

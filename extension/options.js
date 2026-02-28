@@ -1,4 +1,4 @@
-const PORTAL_API_BASE = (typeof globalThis !== 'undefined' && globalThis.KIDS_SAFETY_CONFIG?.PORTAL_API_BASE) || 'http://localhost:8000';
+const PORTAL_API_BASE = (typeof globalThis !== 'undefined' && globalThis.KIDS_SAFETY_CONFIG?.PORTAL_API_BASE) || 'http://127.0.0.1:8000';
 const VALIDATE_URL = PORTAL_API_BASE.replace(/\/$/, '') + '/api/portal/validate/';
 const STORAGE_KEY = 'kidsSafetyApiKey';
 if (typeof console !== 'undefined' && console.log) {
@@ -38,9 +38,13 @@ async function validateWithPortal(key) {
   if (typeof console !== 'undefined' && console.log) {
     console.log('[sIsland Options] Validate response:', res.status, res.statusText);
   }
-  if (!res.ok) return null;
-  const data = await res.json();
-  if (!data.valid || !data.mode) return null;
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    return { error: (data.error || res.statusText || 'Request failed') };
+  }
+  if (!data.valid || !data.mode) {
+    return { error: (data.error || 'Invalid response from server') };
+  }
   return data.mode === 'agentic' ? 'agent' : data.mode;
 }
 
@@ -62,13 +66,18 @@ saveBtn.addEventListener('click', async () => {
   showStatus('Validating key with backend…', false);
 
   try {
-    const portalMode = await validateWithPortal(raw);
-    if (portalMode === null) {
+    const portalResult = await validateWithPortal(raw);
+    if (typeof portalResult === 'object' && portalResult !== null && portalResult.error) {
+      showStatus(portalResult.error, true);
+      saveBtn.disabled = false;
+      return;
+    }
+    if (portalResult === null) {
       showStatus('Key not found in portal or backend unreachable. Only keys that exist in the portal (PostgreSQL) can be used.', true);
       saveBtn.disabled = false;
       return;
     }
-    const finalMode = portalMode !== mode ? portalMode : mode;
+    const finalMode = portalResult !== mode ? portalResult : mode;
     await chrome.storage.local.set({
       [STORAGE_KEY]: raw,
       [STORAGE_MODE]: finalMode,

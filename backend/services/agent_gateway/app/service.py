@@ -37,6 +37,14 @@ TRUST_SCORE_SYSTEM_PROMPT = """You are a trust evaluator. Given the results of s
 
 Output ONLY a JSON object with exactly these two keys: {"trust_score": <0-100>, "explanation": "<text>"}. No markdown, no extra keys."""
 
+PROMPT_DRIVEN_SYSTEM = """You are a helpful safety guide. The user has asked a specific question (their prompt) about whether content is safe. You will be given:
+1) The user's prompt (what they want to know, e.g. explain to a child whether this page is safe).
+2) A summary of safety checks (AI text likelihood, media deepfake scores, fact checks, etc.).
+
+Your task: Answer the user's prompt directly in 2-5 sentences, in simple and clear language. Use the safety check results only as evidence to support your answer. The "explanation" must be the direct answer to the user's question, not a generic trust summary. Also output a trust_score 0-100 (0 = not safe, 100 = safe).
+
+Output ONLY a JSON object: {"trust_score": <0-100>, "explanation": "<your direct answer to the user's prompt>"}. No markdown, no extra keys."""
+
 
 def _action_type(action: dict[str, Any]) -> str:
     """Normalize action type from 'action' or 'type' field."""
@@ -279,9 +287,10 @@ async def execute_action(
 async def run_trust_score_llm(
     action_results: list[tuple[str, Any]],
     settings: Settings,
+    user_prompt: str | None = None,
 ) -> tuple[int, str]:
-    """Second LLM call: summarize results and get trust_score + explanation."""
-    logger.info("Calling LLM for trust score (action_results_count=%s)", len(action_results))
+    """Second LLM call: produce trust_score and explanation. If user_prompt is set, the explanation is a direct answer to that prompt (e.g. for the child)."""
+    logger.info("Calling LLM for trust score (action_results_count=%s, has_user_prompt=%s)", len(action_results), bool(user_prompt))
 
     summary_parts = ["Summary of safety checks:\n"]
     for kind, data in action_results:
@@ -316,14 +325,24 @@ async def run_trust_score_llm(
         else:
             summary_parts.append(f"[{kind}]: {json.dumps(data, default=str)[:500]}")
 
-    user_message = (
-        "\n".join(summary_parts)
-        + '\n\nOutput only a JSON object: {"trust_score": <0-100>, "explanation": "<2-4 sentences>"}'
-    )
+    if user_prompt and user_prompt.strip():
+        system_prompt = PROMPT_DRIVEN_SYSTEM
+        user_message = (
+            f"User's question / prompt: {user_prompt.strip()}\n\n"
+            "Safety check results:\n"
+            + "\n".join(summary_parts)
+            + '\n\nOutput only a JSON object: {"trust_score": <0-100>, "explanation": "<your direct answer to the user\'s question in 2-5 sentences>"}'
+        )
+    else:
+        system_prompt = TRUST_SCORE_SYSTEM_PROMPT
+        user_message = (
+            "\n".join(summary_parts)
+            + '\n\nOutput only a JSON object: {"trust_score": <0-100>, "explanation": "<2-4 sentences>"}'
+        )
 
     content = await chat_completions(
         settings,
-        system_prompt=TRUST_SCORE_SYSTEM_PROMPT,
+        system_prompt=system_prompt,
         user_message=user_message,
     )
     logger.info("LLM trust_score response length=%s", len(content or ""))
@@ -580,7 +599,7 @@ async def run_agent(
                 result.get("error"),
             )
 
-    trust_score, trust_score_explanation = await run_trust_score_llm(action_results, settings)
+    trust_score, trust_score_explanation = await run_trust_score_llm(action_results, settings, user_prompt=prompt)
     ai_text_score = build_ai_text_score(action_results)
     fake_facts = build_fake_facts(action_results)
     true_facts = build_true_facts(action_results)
