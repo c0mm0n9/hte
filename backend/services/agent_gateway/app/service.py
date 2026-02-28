@@ -11,7 +11,7 @@ Flow:
 import json
 import logging
 import re
-from typing import Any
+from typing import Any, Optional
 
 import httpx
 
@@ -25,12 +25,16 @@ from .schemas import AgentRunResponse, FakeFact, FakeMediaChunk, FakeMediaItem, 
 ACTIONS_SYSTEM_PROMPT = """You are a safety-analysis agent. Given the user prompt and optional website content, output ONLY a valid JSON array of actions. No markdown, no code fences, no explanation.
 Each action is an object with "type" (or "action") and type-specific fields:
 - ai_text_detection: { "type": "ai_text_detection", "text": "<text to send to AI text detector>" }
-- ai_media_detection: { "type": "ai_media_detection", "media_url": "<url of image or video>" } (one object per URL)
+- ai_media_detection: { "type": "ai_media_detection", "media_url": "<full http/https URL of image or video>" } (one object per URL; ONLY include this action if media_url is a real http/https URL — never use placeholders like [image1])
 - fact_check: { "type": "fact_check", "facts": ["<fact1>", "<fact2>"] }
 - information_graph: { "type": "information_graph" }
 Output only the JSON array."""
 
-TRUST_SCORE_SYSTEM_PROMPT = """You are a trust evaluator. Given the results of safety checks (AI text scores, media checks, fact checks), output a single integer trust score from 0 to 100. Output only a JSON object: {"trust_score": <0-100>}. No other text."""
+TRUST_SCORE_SYSTEM_PROMPT = """You are a trust evaluator. Given the results of safety checks (AI text likelihood, media deepfake scores, fact checks, information graph), produce:
+- trust_score: integer 0-100 (0 = completely untrustworthy, 100 = fully trustworthy)
+- explanation: 2-4 sentence human-readable explanation citing the specific evidence (AI text score, fake/true facts, media scores, information graph status)
+
+Output ONLY a JSON object with exactly these two keys: {"trust_score": <0-100>, "explanation": "<text>"}. No markdown, no extra keys."""
 
 
 def _action_type(action: dict[str, Any]) -> str:
@@ -94,8 +98,19 @@ async def run_ai_text_detection(text: str, settings: Settings) -> dict[str, Any]
         return {"error": str(e), "overall_score": None, "sentence_scores": []}
 
 
+def _is_http_url(value: str) -> bool:
+    return value.startswith("http://") or value.startswith("https://")
+
+
 async def run_media_check(media_url: str, settings: Settings) -> dict[str, Any]:
     """POST to media_checking; return response or error stub."""
+    if not _is_http_url(media_url):
+        logger.info(
+            "media_check skipped: media_url is not a valid HTTP URL (placeholder?) value=%r",
+            media_url,
+        )
+        return {"skipped": True, "reason": "not a valid URL", "chunks": [], "media_url": media_url}
+
     url = (settings.media_checking_url or "").rstrip("/")
     if not url:
         logger.warning("media_check skipped: MEDIA_CHECKING_URL not set")
@@ -111,6 +126,33 @@ async def run_media_check(media_url: str, settings: Settings) -> dict[str, Any]:
     except Exception as e:
         logger.warning("media_checking error: %s", e)
         return {"error": str(e), "chunks": [], "media_url": media_url}
+
+
+async def run_media_check_upload(
+    file_bytes: bytes,
+    filename: str,
+    content_type: str,
+    settings: Settings,
+) -> dict[str, Any]:
+    """POST raw file bytes to media_checking upload endpoint; return response or error stub."""
+    url = (settings.media_checking_url or "").rstrip("/")
+    if not url:
+        logger.warning("media_check_upload skipped: MEDIA_CHECKING_URL not set")
+        return {"error": "MEDIA_CHECKING_URL not set", "chunks": [], "media_url": filename}
+    logger.info("Calling media_checking/upload filename=%s size=%s", filename, len(file_bytes))
+    try:
+        async with httpx.AsyncClient(timeout=settings.service_timeout_seconds) as client:
+            r = await client.post(
+                f"{url}/v1/media/check/upload",
+                files={"file": (filename, file_bytes, content_type)},
+            )
+            r.raise_for_status()
+        out = r.json()
+        logger.info("media_checking upload ok chunks=%s", len(out.get("chunks") or []))
+        return out
+    except Exception as e:
+        logger.warning("media_checking upload error: %s", e)
+        return {"error": str(e), "chunks": [], "media_url": filename}
 
 
 async def run_fact_check(fact: str, settings: Settings) -> dict[str, Any]:
@@ -171,46 +213,77 @@ async def execute_action(
 async def run_trust_score_llm(
     action_results: list[tuple[str, Any]],
     settings: Settings,
-) -> int:
-    """Second LLM call: summarize results and get trust_score 0-100."""
+) -> tuple[int, str]:
+    """Second LLM call: summarize results and get trust_score + explanation."""
     logger.info("Calling LLM for trust score (action_results_count=%s)", len(action_results))
+
     summary_parts = ["Summary of safety checks:\n"]
     for kind, data in action_results:
-        summary_parts.append(f"[{kind}]: {json.dumps(data, default=str)[:2000]}")
-    user_message = "\n".join(summary_parts) + "\n\nOutput only a JSON object with key trust_score (integer 0-100)."
-    system = TRUST_SCORE_SYSTEM_PROMPT
+        if kind == "ai_text_detection":
+            score = data.get("overall_score")
+            summary_parts.append(
+                f"[ai_text_detection]: overall_score={score} "
+                f"(probability text is AI-generated; 1.0 = fully AI, 0.0 = human)"
+            )
+        elif kind == "ai_media_detection":
+            chunks = data.get("chunks") or []
+            scores = [
+                f"chunk{c.get('index', i)}: ai={c.get('ai_generated_score')} deepfake={c.get('deepfake_score')}"
+                for i, c in enumerate(chunks)
+            ]
+            summary_parts.append(
+                f"[ai_media_detection]: media_url={data.get('media_url')} "
+                f"media_type={data.get('media_type')} scores=[{', '.join(scores)}]"
+            )
+        elif kind == "fact_check":
+            for item in data.get("facts") or []:
+                tv = item.get("truth_value")
+                exp = item.get("explanation") or ""
+                summary_parts.append(f"[fact_check]: truth_value={tv} explanation={exp[:300]}")
+        elif kind == "information_graph":
+            summary_parts.append(f"[information_graph]: {json.dumps(data, default=str)[:500]}")
+        else:
+            summary_parts.append(f"[{kind}]: {json.dumps(data, default=str)[:500]}")
+
+    user_message = (
+        "\n".join(summary_parts)
+        + '\n\nOutput only a JSON object: {"trust_score": <0-100>, "explanation": "<2-4 sentences>"}'
+    )
+
     content = await chat_completions(
         settings,
-        system_prompt=system,
+        system_prompt=TRUST_SCORE_SYSTEM_PROMPT,
         user_message=user_message,
     )
     logger.info("LLM trust_score response length=%s", len(content or ""))
+
+    default_explanation = "Trust score estimated based on available checks."
     if not content:
         logger.warning("LLM trust score empty, using default 50")
-        return 50
+        return 50, default_explanation
+
     try:
         parsed = parse_json_from_content(content)
         if isinstance(parsed, dict):
             score = parsed.get("trust_score")
+            explanation = str(parsed.get("explanation") or default_explanation)
             if isinstance(score, (int, float)):
                 s = max(0, min(100, int(score)))
-                logger.info("Parsed trust_score=%s from JSON", s)
-                return s
-        if isinstance(parsed, int):
-            s = max(0, min(100, parsed))
-            logger.info("Parsed trust_score=%s from JSON", s)
-            return s
+                logger.info("Parsed trust_score=%s explanation_len=%s", s, len(explanation))
+                return s, explanation
     except (ValueError, json.JSONDecodeError, TypeError) as e:
         logger.warning("Trust score parse error: %s", e)
-    # Fallback: try to find a number 0-100 in text
+
+    # Fallback: extract score from raw text
     numbers = re.findall(r"\b(100|\d{1,2})\b", content)
     for n in numbers:
         v = int(n)
         if 0 <= v <= 100:
             logger.info("Parsed trust_score=%s from fallback", v)
-            return v
+            return v, default_explanation
+
     logger.warning("Could not parse trust_score from LLM, using default 50")
-    return 50
+    return 50, default_explanation
 
 
 # Threshold above which a chunk is considered "fake" (AI-generated/deepfake)
@@ -219,7 +292,7 @@ MEDIA_FAKE_THRESHOLD = 0.5
 
 def _media_item_from_result(data: dict[str, Any]) -> FakeMediaItem | None:
     """Build a FakeMediaItem from a media_checking result dict."""
-    if data.get("error"):
+    if data.get("error") or data.get("skipped"):
         return None
     media_url = data.get("media_url") or ""
     chunks_raw = data.get("chunks") or []
@@ -293,6 +366,18 @@ def build_true_facts(action_results: list[tuple[str, Any]]) -> list[TrueFact]:
     return out
 
 
+def build_ai_text_score(action_results: list[tuple[str, Any]]) -> Optional[float]:
+    """Return the highest overall_score seen across all ai_text_detection results, or None."""
+    scores: list[float] = []
+    for kind, data in action_results:
+        if kind != "ai_text_detection":
+            continue
+        s = data.get("overall_score")
+        if isinstance(s, (int, float)):
+            scores.append(float(s))
+    return max(scores) if scores else None
+
+
 def build_fake_media(action_results: list[tuple[str, Any]]) -> list[FakeMediaItem]:
     """Build fake_media: items where any chunk exceeds fake threshold."""
     out: list[FakeMediaItem] = []
@@ -321,28 +406,41 @@ async def run_agent(
     prompt: str | None,
     website_content: str | None,
     settings: Settings,
+    uploaded_file: tuple[bytes, str, str] | None = None,
 ) -> AgentRunResponse:
     """
     Full pipeline: get actions from LLM -> execute via APIs -> trust score LLM -> compile response.
+
+    uploaded_file: optional (file_bytes, filename, content_type) for direct media upload checks.
     """
-    logger.info("run_agent started")
+    logger.info("run_agent started uploaded_file=%s", uploaded_file[1] if uploaded_file else None)
     actions = await get_actions_from_llm(prompt, website_content, settings)
     action_results: list[tuple[str, Any]] = []
+
+    # If a file was uploaded directly, run media check on it first (bypasses URL fetch)
+    if uploaded_file:
+        file_bytes, filename, content_type = uploaded_file
+        logger.info("Running direct media upload check for filename=%s", filename)
+        upload_result = await run_media_check_upload(file_bytes, filename, content_type, settings)
+        action_results.append(("ai_media_detection", upload_result))
+
     for i, act in enumerate(actions):
         kind, result = await execute_action(act, settings)
         action_results.append((kind, result))
         if result.get("error"):
             logger.warning("Action %s/%s (%s) had error: %s", i + 1, len(actions), kind, result.get("error"))
 
-    trust_score = await run_trust_score_llm(action_results, settings)
+    trust_score, trust_score_explanation = await run_trust_score_llm(action_results, settings)
+    ai_text_score = build_ai_text_score(action_results)
     fake_facts = build_fake_facts(action_results)
     true_facts = build_true_facts(action_results)
     fake_media = build_fake_media(action_results)
     true_media = build_true_media(action_results)
 
     logger.info(
-        "Compiled response: trust_score=%s fake_facts=%s true_facts=%s fake_media=%s true_media=%s",
+        "Compiled response: trust_score=%s ai_text_score=%s fake_facts=%s true_facts=%s fake_media=%s true_media=%s",
         trust_score,
+        ai_text_score,
         len(fake_facts),
         len(true_facts),
         len(fake_media),
@@ -351,6 +449,8 @@ async def run_agent(
 
     return AgentRunResponse(
         trust_score=trust_score,
+        trust_score_explanation=trust_score_explanation,
+        ai_text_score=ai_text_score,
         fake_facts=fake_facts,
         fake_media=fake_media,
         true_facts=true_facts,

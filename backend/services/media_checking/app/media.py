@@ -1,3 +1,4 @@
+import logging
 import math
 import shutil
 import subprocess
@@ -10,6 +11,8 @@ from urllib.parse import urlparse, urlunparse
 import httpx
 
 from .config import Settings
+
+logger = logging.getLogger(__name__)
 
 
 def _rewrite_media_url_if_local(url: str, settings: Settings) -> str:
@@ -58,11 +61,33 @@ async def download_media_to_temp(
     max_bytes: Optional[int] = settings.max_video_bytes
     connect_timeout = settings.media_fetch_connect_timeout_seconds
     read_timeout = settings.media_fetch_read_timeout_seconds
-    timeout = httpx.Timeout(connect=connect_timeout, read=read_timeout)
+
+    # httpx.Timeout requires either a default or all four params explicitly;
+    # omitting write/pool raises ValueError.
+    timeout = httpx.Timeout(
+        connect=connect_timeout,
+        read=read_timeout,
+        write=None,
+        pool=connect_timeout,
+    )
+
+    logger.info(
+        "Downloading media url=%s connect_timeout=%s read_timeout=%s max_bytes=%s",
+        url,
+        connect_timeout,
+        read_timeout,
+        max_bytes,
+    )
 
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             async with client.stream("GET", url) as resp:
+                logger.debug(
+                    "Media fetch response status=%s content-type=%s url=%s",
+                    resp.status_code,
+                    resp.headers.get("Content-Type"),
+                    url,
+                )
                 resp.raise_for_status()
                 mime_type = resp.headers.get("Content-Type", "application/octet-stream")
                 with open(media_path, "wb") as f:
@@ -75,7 +100,9 @@ async def download_media_to_temp(
                             resp.close()
                             raise ValueError("Media exceeds configured max_video_bytes limit")
                         f.write(chunk)
+        logger.info("Media downloaded bytes=%d mime_type=%s path=%s", total, mime_type, media_path)
     except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout) as e:
+        logger.warning("Media fetch failed (network/timeout) url=%s error=%s", url, e)
         if temp_dir.exists():
             shutil.rmtree(temp_dir, ignore_errors=True)
         raise MediaUnreachableError(
@@ -83,6 +110,9 @@ async def download_media_to_temp(
             f"Ensure the URL is reachable from this service (e.g. from Docker use host.docker.internal or service names, not localhost). Original: {e!s}"
         ) from e
     except httpx.HTTPStatusError as e:
+        logger.warning(
+            "Media fetch HTTP error url=%s status=%s", url, e.response.status_code
+        )
         if temp_dir.exists():
             shutil.rmtree(temp_dir, ignore_errors=True)
         raise MediaUnreachableError(
