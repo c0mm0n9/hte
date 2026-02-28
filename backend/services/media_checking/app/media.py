@@ -5,10 +5,31 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 
 from .config import Settings
+
+
+def _rewrite_media_url_if_local(url: str, settings: Settings) -> str:
+    """If URL points to localhost/127.0.0.1 and rewrite host is set, rewrite for Docker access."""
+    if not settings.media_url_rewrite_host:
+        return url
+    try:
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower()
+        if host in ("localhost", "127.0.0.1", "::1"):
+            new_netloc = f"{settings.media_url_rewrite_host}:{parsed.port}" if parsed.port else settings.media_url_rewrite_host
+            return urlunparse(parsed._replace(netloc=new_netloc))
+    except Exception:
+        pass
+    return url
+
+
+class MediaUnreachableError(Exception):
+    """Raised when the media URL cannot be fetched (connection failed, timeout, etc.)."""
+    pass
 
 
 @dataclass
@@ -30,25 +51,44 @@ async def download_media_to_temp(
 
     Returns (temp_dir, media_path, mime_type).
     """
+    url = _rewrite_media_url_if_local(url, settings)
     temp_dir = Path(tempfile.mkdtemp(prefix="ai_media_"))
     media_path = temp_dir / filename
 
     max_bytes: Optional[int] = settings.max_video_bytes
+    connect_timeout = settings.media_fetch_connect_timeout_seconds
+    read_timeout = settings.media_fetch_read_timeout_seconds
+    timeout = httpx.Timeout(connect=connect_timeout, read=read_timeout)
 
-    async with httpx.AsyncClient(timeout=None, follow_redirects=True) as client:
-        async with client.stream("GET", url) as resp:
-            resp.raise_for_status()
-            mime_type = resp.headers.get("Content-Type", "application/octet-stream")
-            with open(media_path, "wb") as f:
-                total = 0
-                async for chunk in resp.aiter_bytes():
-                    if not chunk:
-                        continue
-                    total += len(chunk)
-                    if max_bytes is not None and total > max_bytes:
-                        resp.close()
-                        raise ValueError("Media exceeds configured max_video_bytes limit")
-                    f.write(chunk)
+    try:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            async with client.stream("GET", url) as resp:
+                resp.raise_for_status()
+                mime_type = resp.headers.get("Content-Type", "application/octet-stream")
+                with open(media_path, "wb") as f:
+                    total = 0
+                    async for chunk in resp.aiter_bytes():
+                        if not chunk:
+                            continue
+                        total += len(chunk)
+                        if max_bytes is not None and total > max_bytes:
+                            resp.close()
+                            raise ValueError("Media exceeds configured max_video_bytes limit")
+                        f.write(chunk)
+    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout) as e:
+        if temp_dir.exists():
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        raise MediaUnreachableError(
+            f"Could not fetch media from URL (connection failed or timeout). "
+            f"Ensure the URL is reachable from this service (e.g. from Docker use host.docker.internal or service names, not localhost). Original: {e!s}"
+        ) from e
+    except httpx.HTTPStatusError as e:
+        if temp_dir.exists():
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        raise MediaUnreachableError(
+            f"Media URL returned HTTP {e.response.status_code}. "
+            f"Ensure the URL is accessible. Original: {e!s}"
+        ) from e
 
     return temp_dir, media_path, mime_type
 

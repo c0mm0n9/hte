@@ -21,7 +21,8 @@ class ChunkResult(BaseModel):
 
 
 class MediaCheckResponse(BaseModel):
-    media_url: HttpUrl
+    # str instead of HttpUrl so uploaded files (no URL) can be identified by filename
+    media_url: str
     media_type: Literal["image", "video"]
     duration_seconds: float
     chunk_seconds: int

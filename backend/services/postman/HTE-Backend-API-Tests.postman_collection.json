@@ -1,0 +1,408 @@
+{
+  "info": {
+    "_postman_id": "hte-backend-api-tests-001",
+    "name": "HTE Backend API Tests",
+    "description": "API tests for HTE backend containers: Agent Gateway (8003), Media Checking (8000), Fact Checking (8001). Import into Postman/Hoppscotch and run against running Docker containers.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "media_base", "value": "http://localhost:8000" },
+    { "key": "fact_base", "value": "http://localhost:8001" },
+    { "key": "agent_base", "value": "http://localhost:8003" }
+  ],
+  "item": [
+    {
+      "name": "Agent Gateway Service",
+      "item": [
+        {
+          "name": "Health check",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('Body has status ok', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('status', 'ok');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{agent_base}}/healthz",
+            "description": "Verify Agent Gateway service is up."
+          }
+        },
+        {
+          "name": "Agent run (prompt only)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('Response has agent run shape', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('trust_score');",
+                  "    pm.expect(json.trust_score).to.be.a('number');",
+                  "    pm.expect(json.trust_score).to.be.within(0, 100);",
+                  "    pm.expect(json).to.have.property('fake_facts').that.is.an('array');",
+                  "    pm.expect(json).to.have.property('fake_media').that.is.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"api_key\": \"test-key\",\n  \"prompt\": \"I need to analyze this website for safety\"\n}"
+            },
+            "url": "{{agent_base}}/v1/agent/run",
+            "description": "Run agent with prompt only. Set AGENT_GATEWAY_ALLOWED_API_KEYS=test-key in .env to pass key validation, or leave empty to skip."
+          }
+        },
+        {
+          "name": "Agent run (prompt + website_content)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('Response has agent run shape', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('trust_score').that.is.a('number');",
+                  "    pm.expect(json.trust_score).to.be.within(0, 100);",
+                  "    pm.expect(json).to.have.property('fake_facts').that.is.an('array');",
+                  "    pm.expect(json).to.have.property('fake_media').that.is.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"api_key\": \"test-key\",\n  \"prompt\": \"I need to analyze this website for safety\",\n  \"website_content\": \"Sample page text. The sky is blue. Here is an image: https://example.com/image.png\"\n}"
+            },
+            "url": "{{agent_base}}/v1/agent/run",
+            "description": "Run agent with prompt and website content for LLM to extract text/media and generate actions."
+          }
+        },
+        {
+          "name": "Agent run – invalid body (4xx)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 4xx client error', function () { pm.expect(pm.response.code).to.be.within(400, 499); });",
+                  "pm.test('Error response has detail', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('detail');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"prompt\": \"Analyze this\"\n}"
+            },
+            "url": "{{agent_base}}/v1/agent/run",
+            "description": "Expect 422 when api_key is missing."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Media Checking Service",
+      "item": [
+        {
+          "name": "Health check",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('Body has status ok', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('status', 'ok');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{media_base}}/healthz",
+            "description": "Verify Media Checking service is up."
+          }
+        },
+        {
+          "name": "Media check (image URL)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('Response has media check shape', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('media_url');",
+                  "    pm.expect(json).to.have.property('media_type');",
+                  "    pm.expect(json).to.have.property('provider');",
+                  "    pm.expect(json).to.have.property('chunks').that.is.an('array');",
+                  "    pm.expect(['image', 'video']).to.include(json.media_type);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"media_url\": \"{{media_base}}/samples/sample.png\",\n  \"type_hint\": \"image\"\n}"
+            },
+            "url": "{{media_base}}/v1/media/check",
+            "description": "Check an image URL for AI-generated/deepfake. Optional: chunk_seconds, max_chunks, type_hint."
+          }
+        },
+        {
+          "name": "Deepfake check (video URL)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('Response has media check shape', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('media_url');",
+                  "    pm.expect(json).to.have.property('media_type');",
+                  "    pm.expect(json).to.have.property('chunks').that.is.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"media_url\": \"{{media_base}}/samples/sample.mp4\",\n  \"chunk_seconds\": 5,\n  \"max_chunks\": 2,\n  \"type_hint\": \"video\"\n}"
+            },
+            "url": "{{media_base}}/v1/deepfake/check",
+            "description": "Check a video URL for deepfake. Uses chunk_seconds and max_chunks for video."
+          }
+        },
+        {
+          "name": "Media check – upload image file",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('Response has media check shape', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('media_url');",
+                  "    pm.expect(json).to.have.property('media_type', 'image');",
+                  "    pm.expect(json).to.have.property('provider');",
+                  "    pm.expect(json).to.have.property('chunks').that.is.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "/path/to/sample.png",
+                  "description": "Replace with actual path to a local image file"
+                },
+                {
+                  "key": "type_hint",
+                  "value": "image",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": "{{media_base}}/v1/media/check/upload",
+            "description": "Upload a local image file directly (multipart/form-data). Equivalent to: curl -F 'file=@/path/to/image.png' -F 'type_hint=image' {{media_base}}/v1/media/check/upload"
+          }
+        },
+        {
+          "name": "Deepfake check – upload video file",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('Response has media check shape', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('media_url');",
+                  "    pm.expect(json).to.have.property('media_type', 'video');",
+                  "    pm.expect(json).to.have.property('chunks').that.is.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "/path/to/sample.mp4",
+                  "description": "Replace with actual path to a local video file"
+                },
+                {
+                  "key": "type_hint",
+                  "value": "video",
+                  "type": "text"
+                },
+                {
+                  "key": "chunk_seconds",
+                  "value": "5",
+                  "type": "text"
+                },
+                {
+                  "key": "max_chunks",
+                  "value": "2",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": "{{media_base}}/v1/deepfake/check/upload",
+            "description": "Upload a local video file directly (multipart/form-data). Equivalent to: curl -F 'file=@/path/to/video.mp4' -F 'type_hint=video' -F 'chunk_seconds=5' -F 'max_chunks=2' {{media_base}}/v1/deepfake/check/upload"
+          }
+        },
+        {
+          "name": "Media check – invalid body (4xx)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 4xx client error', function () { pm.expect(pm.response.code).to.be.within(400, 499); });",
+                  "pm.test('Error response has detail', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('detail');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"media_url\": \"\"\n}"
+            },
+            "url": "{{media_base}}/v1/media/check",
+            "description": "Expect 400/422 when media_url is empty or invalid."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Fact Checking Service",
+      "item": [
+        {
+          "name": "Health check",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('Body has status ok', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('status', 'ok');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{fact_base}}/healthz",
+            "description": "Verify Fact Checking service is up."
+          }
+        },
+        {
+          "name": "Fact check",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('Response has fact check shape', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('truth_value').that.is.a('boolean');",
+                  "    pm.expect(json).to.have.property('explanation').that.is.a('string');",
+                  "    pm.expect(json).to.have.property('provider').that.is.a('string');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fact\": \"The Earth orbits the Sun.\"\n}"
+            },
+            "url": "{{fact_base}}/v1/fact/check",
+            "description": "Check a factual claim. Requires fact_checking .env with provider API keys (e.g. EXA)."
+          }
+        }
+      ]
+    }
+  ]
+}
