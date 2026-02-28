@@ -260,6 +260,17 @@ def api_record_visit(request):
     if (api_key is None and device_id is None) or not url:
         return JsonResponse({'error': 'api_key (or device_id) and url required'}, status=400)
 
+    # Do not record Google search in visited list
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        hostname = (parsed.netloc or '').lower().lstrip('www.')
+        path = (parsed.path or '').lower()
+        if 'google' in hostname and '/search' in path:
+            return JsonResponse({'status': 'skipped', 'reason': 'google_search'})
+    except Exception:
+        pass
+
     device = None
     if isinstance(api_key, str) and api_key.strip():
         key = api_key.strip()

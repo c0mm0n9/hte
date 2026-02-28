@@ -86,8 +86,23 @@ function checkAndBlockNavigation(tabId, url) {
   });
 }
 
+function isGoogleSearchUrl(url) {
+  try {
+    var u = new URL(url);
+    var host = (u.hostname || '').toLowerCase().replace(/^www\./, '');
+    var path = (u.pathname || '').toLowerCase();
+    return host.indexOf('google') !== -1 && path.indexOf('/search') !== -1;
+  } catch (_) {
+    return false;
+  }
+}
+
 function recordVisit(apiKey, url, title, has_harmful_content, has_pii, has_predators) {
   if (!apiKey || !url) return;
+  if (isGoogleSearchUrl(url)) {
+    log('skip record-visit: google search', url.slice(0, 50));
+    return;
+  }
   const base = (CONFIG.PORTAL_API_BASE || '').replace(/\/$/, '');
   if (!base) return;
   const recordUrl = base + '/api/portal/record-visit/';

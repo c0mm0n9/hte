@@ -3,72 +3,38 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>sIsland – Setup</title>
-  <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet" />
+  <title>s-island – Setup</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --sea-500: #0ea5e9;
-      --sea-600: #0284c7;
-      --sea-700: #0369a1;
-      --sand-50: #fefdfb;
-      --sand-100: #fef7ed;
-      --sand-200: #e8dcc4;
-      --sand-700: #a89880;
-      --sand-border: #e8dcc4;
+      --emerald-50: #ecfdf5; --emerald-100: #d1fae5; --emerald-200: #a7f3d0;
+      --emerald-500: #10b981; --emerald-600: #059669; --emerald-700: #047857; --emerald-800: #065f46;
+      --zinc-600: #52525b; --zinc-800: #27272a; --zinc-900: #18181b;
     }
     * { box-sizing: border-box; }
-    body {
-      font-family: 'Source Sans 3', system-ui, -apple-system, sans-serif;
-      font-size: 14px;
-      margin: 0;
-      padding: 24px;
-      max-width: 480px;
-      color: #4a3728;
-      background: var(--sand-100);
-    }
-    h1 { font-size: 18px; font-weight: 600; margin: 0 0 8px 0; color: var(--sand-700); }
-    h1 .sea { color: var(--sea-600); }
-    h1 .sand { color: var(--sand-700); }
-    p { margin: 0 0 16px 0; color: #6b5344; line-height: 1.5; }
-    label { display: block; font-weight: 500; margin-bottom: 6px; color: #4a3728; }
-    input[type="text"] {
-      width: 100%;
-      padding: 10px 12px;
-      font: inherit;
-      border: 1px solid var(--sand-border);
-      border-radius: 6px;
-      margin-bottom: 16px;
-      background: #fff;
-    }
-    input[type="text"]:focus {
-      outline: none;
-      border-color: var(--sea-500);
-      box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.2);
-    }
-    .hint { font-size: 12px; color: var(--sand-700); margin-top: -8px; margin-bottom: 16px; }
-    button {
-      padding: 10px 20px;
-      font: inherit;
-      font-weight: 500;
-      color: #fff;
-      background: var(--sea-600);
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-    }
-    button:hover { background: var(--sea-700); }
-    button.secondary { background: var(--sand-700); margin-left: 8px; }
-    button.secondary:hover { background: #8b7355; }
-    .status { margin-top: 16px; padding: 10px; border-radius: 6px; font-size: 13px; }
-    .status.success { background: #d1e7dd; color: #0f5132; }
-    .status.error { background: #f8d7da; color: #842029; }
-    .mode-badge { display: inline-block; margin-top: 8px; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 500; }
-    .mode-badge.agent { background: #e0f2fe; color: var(--sea-700); }
-    .mode-badge.control { background: #fef3c7; color: #664d03; }
+    body { font-family: 'DM Sans', system-ui, sans-serif; font-size: 14px; margin: 0; padding: 28px; max-width: 500px; color: var(--zinc-900); background: var(--emerald-50); }
+    .logo { font-family: 'Outfit', system-ui, sans-serif; font-weight: 700; font-size: 1.5rem; margin-bottom: 4px; }
+    .logo-s { color: var(--emerald-600); }
+    .logo-island { color: var(--zinc-700); }
+    h1 { font-family: 'Outfit', system-ui, sans-serif; font-size: 1.35rem; font-weight: 600; margin: 0 0 20px 0; color: var(--emerald-800); }
+    p { margin: 0 0 16px 0; color: var(--zinc-600); line-height: 1.55; }
+    label { display: block; font-weight: 500; margin-bottom: 6px; color: var(--zinc-800); }
+    input[type="text"] { width: 100%; padding: 12px 14px; font: inherit; border: 1px solid var(--emerald-200); border-radius: 10px; margin-bottom: 16px; background: #fff; color: var(--zinc-900); }
+    input[type="text"]:focus { outline: none; border-color: var(--emerald-500); box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2); }
+    .hint { font-size: 12px; color: var(--zinc-600); margin-top: -8px; margin-bottom: 16px; }
+    button { padding: 12px 22px; font: inherit; font-weight: 600; color: #fff; background: var(--emerald-600); border: none; border-radius: 10px; cursor: pointer; }
+    button:hover { background: var(--emerald-700); }
+    button.secondary { background: var(--zinc-600); margin-left: 10px; }
+    button.secondary:hover { background: var(--zinc-700); }
+    .status { margin-top: 18px; padding: 12px 14px; border-radius: 10px; font-size: 13px; }
+    .status.success { background: var(--emerald-100); color: var(--emerald-800); border: 1px solid var(--emerald-200); }
+    .status.error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+    code { background: var(--emerald-100); padding: 2px 6px; border-radius: 4px; font-size: 0.9em; color: var(--emerald-800); }
   </style>
 </head>
 <body>
-  <h1><span class="sea">s</span><span class="sand">Island</span> – API key</h1>
+  <p class="logo"><span class="logo-s">s</span><span class="logo-island">-island</span></p>
+  <h1>API key</h1>
   <p>Enter the API key from your parent portal. It looks like <code>53c7fbc2-06be-4a5e-b8d2-43b5e0232efd-agent</code> and sets whether this extension runs in Agent or Control mode.</p>
   <label for="api-key">API key</label>
   <input type="text" id="api-key" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx-agent" autocomplete="off" />

@@ -3,56 +3,38 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>sIsland</title>
-  <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet" />
+  <title>s-island</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --sea-500: #0ea5e9;
-      --sea-600: #0284c7;
-      --sea-700: #0369a1;
-      --sand-100: #fef7ed;
-      --sand-200: #e8dcc4;
-      --sand-700: #a89880;
+      --emerald-50: #ecfdf5; --emerald-100: #d1fae5; --emerald-200: #a7f3d0;
+      --emerald-500: #10b981; --emerald-600: #059669; --emerald-700: #047857; --emerald-800: #065f46;
+      --zinc-400: #a1a1aa; --zinc-600: #52525b; --zinc-700: #3f3f46; --zinc-800: #27272a; --zinc-900: #18181b;
     }
     * { box-sizing: border-box; }
-    body {
-      font-family: 'Source Sans 3', system-ui, -apple-system, sans-serif;
-      font-size: 13px;
-      margin: 0;
-      padding: 12px;
-      min-width: 320px;
-      max-width: 380px;
-      min-height: 280px;
-      color: #4a3728;
-      background: var(--sand-100);
-    }
-    h1 { font-size: 14px; font-weight: 600; margin: 0 0 10px 0; color: var(--sand-700); }
-    .url-row { margin-bottom: 10px; padding: 6px 8px; background: var(--sand-200); border-radius: 6px; font-size: 11px; color: #6b5344; word-break: break-all; }
-    .url-row strong { color: #4a3728; }
-    label { display: block; font-weight: 500; margin-bottom: 4px; color: #4a3728; }
-    textarea { width: 100%; min-height: 72px; padding: 8px; border: 1px solid var(--sand-200); border-radius: 6px; font: inherit; resize: vertical; margin-bottom: 8px; background: #fff; }
-    textarea:focus { outline: none; border-color: var(--sea-500); box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.2); }
-    button { width: 100%; padding: 8px 12px; font: inherit; font-weight: 500; color: #fff; background: var(--sea-600); border: none; border-radius: 6px; cursor: pointer; }
-    button:hover { background: var(--sea-700); }
+    body { font-family: 'DM Sans', system-ui, sans-serif; font-size: 13px; margin: 0; padding: 14px; min-width: 320px; max-width: 380px; min-height: 280px; color: var(--zinc-900); background: var(--emerald-50); }
+    h1 { font-family: 'Outfit', system-ui, sans-serif; font-size: 15px; font-weight: 600; margin: 0 0 10px 0; color: var(--emerald-800); }
+    .url-row { margin-bottom: 10px; padding: 8px 10px; background: var(--emerald-100); border: 1px solid var(--emerald-200); border-radius: 8px; font-size: 11px; color: var(--zinc-600); word-break: break-all; }
+    .url-row strong { color: var(--zinc-900); }
+    label { display: block; font-weight: 500; margin-bottom: 4px; color: var(--zinc-800); }
+    textarea { width: 100%; min-height: 72px; padding: 8px 10px; border: 1px solid var(--emerald-200); border-radius: 8px; font: inherit; resize: vertical; margin-bottom: 8px; background: #fff; color: var(--zinc-900); }
+    textarea:focus { outline: none; border-color: var(--emerald-500); box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2); }
+    button { width: 100%; padding: 10px 12px; font: inherit; font-weight: 600; color: #fff; background: var(--emerald-600); border: none; border-radius: 10px; cursor: pointer; }
+    button:hover { background: var(--emerald-700); }
     button:disabled { opacity: 0.6; cursor: not-allowed; }
-    .reply-box { margin-top: 12px; padding: 10px; background: #fff; border: 1px solid var(--sand-200); border-radius: 6px; white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.45; min-height: 60px; }
-    .reply-box.empty { color: var(--sand-700); }
-    .reply-box strong { color: var(--sea-600); }
-    .error { color: #dc3545; }
+    .reply-box { margin-top: 12px; padding: 10px 12px; background: #fff; border: 1px solid var(--emerald-200); border-radius: 8px; white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.5; min-height: 60px; color: var(--zinc-700); }
+    .reply-box.empty { color: var(--zinc-400); }
+    .reply-box strong { color: var(--emerald-700); }
+    .error { color: #dc2626; }
     .panel { display: none; }
     .panel.active { display: block; }
-    .setup-panel p { margin: 0 0 12px 0; color: #6b5344; line-height: 1.5; }
-    .setup-panel a { color: var(--sea-600); }
-    .control-panel p { color: #6b5344; }
-    .popup-header {
-      font-size: 1.25rem;
-      font-weight: 700;
-      margin: -4px 0 12px 0;
-      padding-bottom: 8px;
-      border-bottom: 1px solid var(--sand-200);
-    }
-    .popup-header .title-sea { color: var(--sea-600); }
-    .popup-header .title-sand { color: var(--sand-700); }
+    .setup-panel p { margin: 0 0 12px 0; color: var(--zinc-600); line-height: 1.5; }
+    .setup-panel a { color: var(--emerald-600); font-weight: 500; }
+    .control-panel p { color: var(--zinc-600); }
+    .popup-header { font-family: 'Outfit', system-ui, sans-serif; font-size: 1.35rem; font-weight: 700; margin: -4px 0 12px 0; padding-bottom: 10px; border-bottom: 1px solid var(--emerald-200); }
+    .popup-header .logo-s { color: var(--emerald-600); }
+    .popup-header .logo-island { color: var(--zinc-700); }
+    input[type="checkbox"] { accent-color: var(--emerald-600); margin-right: 6px; }
   </style>
 </head>
 <body>
@@ -63,12 +45,15 @@
   </div>
   <div id="control-panel" class="panel control-panel">
     <header class="popup-header">
-      <span class="title-sea">s</span><span class="title-sand">Island</span>
+      <span class="logo-s">s</span><span class="logo-island">-island</span>
     </header>
     <h1>Control mode</h1>
     <p>This device is in Control mode. Blocking and explainer videos are active.</p>
   </div>
   <div id="agent-panel" class="panel agent-panel">
+    <header class="popup-header">
+      <span class="logo-s">s</span><span class="logo-island">-island</span>
+    </header>
     <h1>Ask the agent</h1>
     <p class="url-row"><strong>Page:</strong> <span id="page-url">—</span></p>
     <label for="message">Your question (e.g. &quot;Is this real?&quot; or &quot;Is this AI-generated?&quot;)</label>

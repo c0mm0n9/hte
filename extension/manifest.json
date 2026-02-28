@@ -1,13 +1,13 @@
 {
   "manifest_version": 3,
-  "name": "s-Island",
+  "name": "s-island",
   "version": "0.1.0",
   "description": "digital ecosystem to safely surf in the sea of information",
   "permissions": ["storage", "activeTab", "tabs", "scripting", "webNavigation"],
   "host_permissions": ["<all_urls>", "http://localhost:8000/*", "http://localhost:8003/*", "http://localhost:11434/*", "http://127.0.0.1:7559/*", "https://*/*"],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "s-Island"
+    "default_title": "s-island"
   },
   "options_ui": {
     "page": "options.html",

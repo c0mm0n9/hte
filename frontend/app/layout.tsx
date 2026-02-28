@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
-import { Source_Sans_3, Geist_Mono, Caveat_Brush } from "next/font/google";
+import { DM_Sans, Geist_Mono, Outfit } from "next/font/google";
 import "./globals.css";
 
-const sourceSans = Source_Sans_3({
-  variable: "--font-sans",
+const dmSans = DM_Sans({
+  variable: "--font-body",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
 });
 
 const geistMono = Geist_Mono({
@@ -12,15 +13,15 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const caveatBrush = Caveat_Brush({
-  variable: "--font-caveat-brush",
+const outfit = Outfit({
+  variable: "--font-title",
   subsets: ["latin"],
-  weight: "400",
+  weight: ["400", "500", "600", "700"],
 });
 
 export const metadata: Metadata = {
-  title: "sIsland — digital ecosystem to safely surf in the sea of information",
-  description: "digital ecosystem to safely surf in the sea of information",
+  title: "s-island — Keep kids safe online",
+  description: "Keep kids safe online with harmful content detection, private information alerts, and predator awareness.",
 };
 
 export default function RootLayout({
@@ -31,7 +32,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${sourceSans.variable} ${geistMono.variable} ${caveatBrush.variable} font-sans antialiased`}
+        className={`${dmSans.variable} ${geistMono.variable} ${outfit.variable} font-body antialiased`}
       >
         {children}
       </body>
