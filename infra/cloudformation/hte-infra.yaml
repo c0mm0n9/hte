@@ -1,0 +1,682 @@
+# HTE AWS infrastructure: VPC, RDS, ECR, ECS cluster, ALBs for portal and gateway.
+# Task definitions and ECS services are created by scripts/aws_deploy.py (env + secrets from .env).
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "HTE - VPC, RDS PostgreSQL, ECR, ECS Fargate cluster, Portal and Gateway ALBs"
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: hte
+    Description: Environment name (prefix for resources)
+  DBPassword:
+    Type: String
+    NoEcho: true
+    Description: Master password for RDS PostgreSQL
+    MinLength: 8
+  DBAllocatedStorage:
+    Type: Number
+    Default: 20
+    Description: RDS allocated storage (GB)
+  DBInstanceClass:
+    Type: String
+    Default: db.t3.micro
+    AllowedValues:
+      - db.t3.micro
+      - db.t3.small
+      - db.t3.medium
+    Description: RDS instance class
+  ContainerCpu:
+    Type: Number
+    Default: 256
+    Description: CPU units per task (1024 = 1 vCPU)
+  ContainerMemory:
+    Type: Number
+    Default: 512
+    Description: Memory per task (MB)
+  VpcId:
+    Type: String
+    Default: ""
+    Description: "(Optional) Existing VPC ID. Leave empty to create a new VPC."
+  PublicSubnetIds:
+    Type: CommaDelimitedList
+    Default: ""
+    Description: "(Optional) Public subnet IDs for ALB (if using existing VPC)."
+  PrivateSubnetIds:
+    Type: CommaDelimitedList
+    Default: ""
+    Description: "(Optional) Private subnet IDs for ECS and RDS (if using existing VPC)."
+  VpcCidr:
+    Type: String
+    Default: "10.0.0.0/16"
+    Description: "(Optional) VPC CIDR for RDS ingress when using existing VPC (e.g. 10.0.0.0/16)."
+
+Conditions:
+  CreateVPC: !Equals [ !Ref VpcId, "" ]
+
+Resources:
+  # --- VPC (optional: use existing via VpcId) ---
+  VPC:
+    Type: AWS::EC2::VPC
+    Condition: CreateVPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-vpc"
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Condition: CreateVPC
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [ 0, !GetAZs "" ]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-public-1"
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Condition: CreateVPC
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [ 1, !GetAZs "" ]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-public-2"
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Condition: CreateVPC
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.10.0/24
+      AvailabilityZone: !Select [ 0, !GetAZs "" ]
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-private-1"
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Condition: CreateVPC
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.11.0/24
+      AvailabilityZone: !Select [ 1, !GetAZs "" ]
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-private-2"
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Condition: CreateVPC
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-igw"
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Condition: CreateVPC
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Condition: CreateVPC
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-public-rt"
+
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    Condition: CreateVPC
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateVPC
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateVPC
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  # NAT Gateway (so private subnet tasks can pull images and reach RDS)
+  NatGatewayEIP:
+    Type: AWS::EC2::EIP
+    Condition: CreateVPC
+    DependsOn: AttachGateway
+    Properties:
+      Domain: vpc
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Condition: CreateVPC
+    Properties:
+      AllocationId: !GetAtt NatGatewayEIP.AllocationId
+      SubnetId: !Ref PublicSubnet1
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Condition: CreateVPC
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-private-rt"
+
+  DefaultPrivateRoute:
+    Type: AWS::EC2::Route
+    Condition: CreateVPC
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateVPC
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateVPC
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTable
+
+  # --- Security groups ---
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ALB security group
+      VpcId: !If [ CreateVPC, !Ref VPC, !Ref VpcId ]
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-alb-sg"
+
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ECS tasks
+      VpcId: !If [ CreateVPC, !Ref VPC, !Ref VpcId ]
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8000
+          ToPort: 8010
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-ecs-sg"
+
+  # Allow ECS tasks to talk to each other (separate resource to avoid self-reference cycle)
+  ECSSecurityGroupIngressSelf:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref ECSSecurityGroup
+      IpProtocol: tcp
+      FromPort: 8000
+      ToPort: 8010
+      SourceSecurityGroupId: !Ref ECSSecurityGroup
+      Description: Allow ECS tasks in same SG to reach each other
+
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: RDS PostgreSQL
+      VpcId: !If [ CreateVPC, !Ref VPC, !Ref VpcId ]
+      SecurityGroupIngress:
+        # Allow from VPC CIDR so ECS tasks in private subnets can reach RDS (avoids circular dependency with ECSSecurityGroup)
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: !If [ CreateVPC, "10.0.0.0/16", !Ref VpcCidr ]
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-rds-sg"
+
+  # --- RDS ---
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnets for RDS
+      SubnetIds: !If [ CreateVPC, [ !Ref PrivateSubnet1, !Ref PrivateSubnet2 ], !Ref PrivateSubnetIds ]
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-db-subnet"
+
+  RDSInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Sub "${AWS::StackName}-postgres"
+      Engine: postgres
+      EngineVersion: "15"
+      MasterUsername: postgres
+      MasterUserPassword: !Ref DBPassword
+      AllocatedStorage: !Ref DBAllocatedStorage
+      DBInstanceClass: !Ref DBInstanceClass
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups:
+        - !Ref RDSSecurityGroup
+      PubliclyAccessible: false
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-rds"
+
+  # --- ECR repositories ---
+  ECRPortal:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "${EnvironmentName}/portal"
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {"rules":[{"rulePriority":1,"description":"Keep last 5","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":5},"action":{"type":"expire"}}]}
+
+  ECRAgentGateway:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "${EnvironmentName}/agent-gateway"
+
+  ECRFactChecking:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "${EnvironmentName}/fact-checking"
+
+  ECRMediaChecking:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "${EnvironmentName}/media-checking"
+
+  ECRAiTextDetector:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "${EnvironmentName}/ai-text-detector"
+
+  ECRInfoGraph:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "${EnvironmentName}/info-graph"
+
+  ECRContentSafety:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "${EnvironmentName}/content-safety"
+
+  ECRMediaExplanation:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "${EnvironmentName}/media-explanation"
+
+  ECRFrontend:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "${EnvironmentName}/frontend"
+
+  # --- ECS cluster ---
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "${EnvironmentName}-cluster"
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-cluster"
+
+  # Service discovery namespace (internal DNS for ECS services)
+  ServiceDiscoveryNamespace:
+    Type: AWS::ServiceDiscovery::PrivateDnsNamespace
+    Properties:
+      Name: hte.local
+      Vpc: !If [ CreateVPC, !Ref VPC, !Ref VpcId ]
+      Description: Internal DNS for HTE services
+
+  # --- ALB for Portal (Django) ---
+  PortalALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub "${EnvironmentName}-portal-alb"
+      Scheme: internet-facing
+      Type: application
+      IpAddressType: ipv4
+      Subnets: !If [ CreateVPC, [ !Ref PublicSubnet1, !Ref PublicSubnet2 ], !Ref PublicSubnetIds ]
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-portal-alb"
+
+  PortalTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "${EnvironmentName}-portal-tg"
+      Port: 8000
+      Protocol: HTTP
+      VpcId: !If [ CreateVPC, !Ref VPC, !Ref VpcId ]
+      TargetType: ip
+      HealthCheckEnabled: true
+      HealthCheckPath: /api/portal/
+      HealthCheckProtocol: HTTP
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: 200-399
+
+  PortalListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref PortalALB
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref PortalTargetGroup
+
+  # --- ALB for Gateway (agent_gateway) ---
+  GatewayALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub "${EnvironmentName}-gateway-alb"
+      Scheme: internet-facing
+      Type: application
+      IpAddressType: ipv4
+      Subnets: !If [ CreateVPC, [ !Ref PublicSubnet1, !Ref PublicSubnet2 ], !Ref PublicSubnetIds ]
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-gateway-alb"
+
+  GatewayTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "${EnvironmentName}-gateway-tg"
+      Port: 8003
+      Protocol: HTTP
+      VpcId: !If [ CreateVPC, !Ref VPC, !Ref VpcId ]
+      TargetType: ip
+      HealthCheckEnabled: true
+      HealthCheckPath: /healthz
+      HealthCheckProtocol: HTTP
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: 200-399
+
+  GatewayListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref GatewayALB
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref GatewayTargetGroup
+
+  # --- ALB for Frontend (Next.js portal) ---
+  FrontendALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub "${EnvironmentName}-frontend-alb"
+      Scheme: internet-facing
+      Type: application
+      IpAddressType: ipv4
+      Subnets: !If [ CreateVPC, [ !Ref PublicSubnet1, !Ref PublicSubnet2 ], !Ref PublicSubnetIds ]
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-frontend-alb"
+
+  FrontendTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "${EnvironmentName}-frontend-tg"
+      Port: 3000
+      Protocol: HTTP
+      VpcId: !If [ CreateVPC, !Ref VPC, !Ref VpcId ]
+      TargetType: ip
+      HealthCheckEnabled: true
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: 200-399
+
+  FrontendListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref FrontendALB
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref FrontendTargetGroup
+
+  # IAM role for ECS task execution (pull images, logs, secrets)
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-ecs-task-execution"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+
+  ECSTaskExecutionPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub "${EnvironmentName}-ecs-execution-policy"
+      Roles:
+        - !Ref ECSTaskExecutionRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - ecr:GetAuthorizationToken
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - ecr:BatchCheckLayerAvailability
+              - ecr:GetDownloadUrlForLayer
+              - ecr:BatchGetImage
+            Resource: !Sub "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${EnvironmentName}/*"
+          - Effect: Allow
+            Action:
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - secretsmanager:GetSecretValue
+            Resource: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${EnvironmentName}/*"
+
+  # IAM role for ECS tasks (application role)
+  ECSTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-ecs-task-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+
+  # IAM role for init_db Lambda (VPC + CloudWatch Logs)
+  LambdaInitDbRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-lambda-init-db-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+  LambdaInitDbRolePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Roles:
+        - !Ref LambdaInitDbRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - ec2:CreateNetworkInterface
+              - ec2:DescribeNetworkInterfaces
+              - ec2:DeleteNetworkInterface
+              - ec2:AssignPrivateIpAddresses
+              - ec2:UnassignPrivateIpAddresses
+            Resource: "*"
+
+Outputs:
+  VpcId:
+    Description: VPC ID
+    Value: !If [ CreateVPC, !Ref VPC, !Ref VpcId ]
+    Export:
+      Name: !Sub "${EnvironmentName}-VpcId"
+  PrivateSubnetIds:
+    Description: Private subnet IDs for ECS and RDS
+    Value: !If [ CreateVPC, !Join [ ",", [ !Ref PrivateSubnet1, !Ref PrivateSubnet2 ] ], !Join [ ",", !Ref PrivateSubnetIds ] ]
+    Export:
+      Name: !Sub "${EnvironmentName}-PrivateSubnetIds"
+  PublicSubnetIds:
+    Description: Public subnet IDs for ALB
+    Value: !If [ CreateVPC, !Join [ ",", [ !Ref PublicSubnet1, !Ref PublicSubnet2 ] ], !Join [ ",", !Ref PublicSubnetIds ] ]
+    Export:
+      Name: !Sub "${EnvironmentName}-PublicSubnetIds"
+  RDSEndpoint:
+    Description: RDS instance endpoint
+    Value: !GetAtt RDSInstance.Endpoint.Address
+    Export:
+      Name: !Sub "${EnvironmentName}-RDSEndpoint"
+  RDSPort:
+    Description: RDS port
+    Value: !GetAtt RDSInstance.Endpoint.Port
+    Export:
+      Name: !Sub "${EnvironmentName}-RDSPort"
+  ECSClusterName:
+    Description: ECS cluster name
+    Value: !Ref ECSCluster
+    Export:
+      Name: !Sub "${EnvironmentName}-ECSClusterName"
+  PortalALBDnsName:
+    Description: Portal ALB DNS name (public URL for Django)
+    Value: !GetAtt PortalALB.DNSName
+    Export:
+      Name: !Sub "${EnvironmentName}-PortalALBDnsName"
+  PortalALBUrl:
+    Description: Portal base URL (use in extension PORTAL_API_BASE)
+    Value: !Sub "http://${PortalALB.DNSName}"
+    Export:
+      Name: !Sub "${EnvironmentName}-PortalALBUrl"
+  GatewayALBDnsName:
+    Description: Gateway ALB DNS name (public URL for agent_gateway)
+    Value: !GetAtt GatewayALB.DNSName
+    Export:
+      Name: !Sub "${EnvironmentName}-GatewayALBDnsName"
+  GatewayALBUrl:
+    Description: Gateway base URL (use in extension GATEWAY_BASE_URL)
+    Value: !Sub "http://${GatewayALB.DNSName}"
+    Export:
+      Name: !Sub "${EnvironmentName}-GatewayALBUrl"
+  PortalTargetGroupArn:
+    Description: Portal target group ARN
+    Value: !Ref PortalTargetGroup
+    Export:
+      Name: !Sub "${EnvironmentName}-PortalTargetGroupArn"
+  GatewayTargetGroupArn:
+    Description: Gateway target group ARN
+    Value: !Ref GatewayTargetGroup
+    Export:
+      Name: !Sub "${EnvironmentName}-GatewayTargetGroupArn"
+  FrontendALBUrl:
+    Description: Frontend (Next.js) base URL (portal UI)
+    Value: !Sub "http://${FrontendALB.DNSName}"
+    Export:
+      Name: !Sub "${EnvironmentName}-FrontendALBUrl"
+  FrontendTargetGroupArn:
+    Description: Frontend target group ARN
+    Value: !Ref FrontendTargetGroup
+    Export:
+      Name: !Sub "${EnvironmentName}-FrontendTargetGroupArn"
+  ServiceDiscoveryNamespaceId:
+    Description: Service discovery namespace ID
+    Value: !Ref ServiceDiscoveryNamespace
+    Export:
+      Name: !Sub "${EnvironmentName}-ServiceDiscoveryNamespaceId"
+  ECSTaskExecutionRoleArn:
+    Description: ECS task execution role ARN
+    Value: !GetAtt ECSTaskExecutionRole.Arn
+    Export:
+      Name: !Sub "${EnvironmentName}-ECSTaskExecutionRoleArn"
+  ECSTaskRoleArn:
+    Description: ECS task role ARN
+    Value: !GetAtt ECSTaskRole.Arn
+    Export:
+      Name: !Sub "${EnvironmentName}-ECSTaskRoleArn"
+  ECRPortalUri:
+    Description: ECR repository URI for portal
+    Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${EnvironmentName}/portal"
+    Export:
+      Name: !Sub "${EnvironmentName}-ECRPortalUri"
+  ECRAgentGatewayUri:
+    Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${EnvironmentName}/agent-gateway"
+    Export:
+      Name: !Sub "${EnvironmentName}-ECRAgentGatewayUri"
+  ECSSecurityGroupId:
+    Description: ECS security group ID
+    Value: !Ref ECSSecurityGroup
+    Export:
+      Name: !Sub "${EnvironmentName}-ECSSecurityGroupId"
+  LambdaInitDbRoleArn:
+    Description: IAM role ARN for init_db Lambda
+    Value: !GetAtt LambdaInitDbRole.Arn
+    Export:
+      Name: !Sub "${EnvironmentName}-LambdaInitDbRoleArn"

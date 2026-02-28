@@ -2,6 +2,7 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    path('', views.api_health),  # ALB health check: GET /api/portal/
     path('validate/', views.api_validate_key),
     path('blacklist/', views.api_blacklist),
     path('csrf/', views.api_csrf),

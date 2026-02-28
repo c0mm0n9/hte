@@ -8,6 +8,13 @@ class Settings(BaseSettings):
     # API key validation (allowed keys for incoming requests; optional in dev)
     allowed_api_keys: Optional[str] = None  # comma-separated, or empty to skip validation
 
+    # Portal backend: validate API key and fetch prompt (Django /api/portal/validate/)
+    # When set, /agent/run validates key via GET {portal_base_url}/{portal_validate_path}?api_key=...
+    # and uses backend-provided prompt when present (overriding request body prompt).
+    portal_base_url: Optional[str] = None  # e.g. http://host.docker.internal:8000 or http://localhost:8000
+    portal_validate_path: str = "api/portal/validate/"
+    portal_validate_timeout_seconds: float = 10.0
+
     # LLM (Featherless: openai/gpt-oss-120b)
     llm_system_prompt: str = ""
     llm_base_url: str = "https://api.featherless.ai/v1"

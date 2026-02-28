@@ -56,7 +56,7 @@ export default function Home() {
               href="/portal"
               className="inline-flex rounded-xl border-2 border-emerald-600 bg-transparent px-8 py-4 text-base font-semibold text-emerald-700 transition duration-300 hover:scale-[1.02] hover:bg-emerald-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 dark:border-emerald-500 dark:text-emerald-400 dark:hover:bg-emerald-500 dark:hover:text-white"
             >
-              Parents portal
+              Admin portal
             </Link>
           </div>
         </section>

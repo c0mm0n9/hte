@@ -1,6 +1,8 @@
 import logging
 from typing import Optional
+from urllib.parse import urlencode
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import Response
 from starlette.datastructures import UploadFile as StarletteUploadFile
@@ -26,6 +28,72 @@ def validate_api_key(api_key: str, settings: Settings) -> None:
         )
 
 
+async def validate_api_key_with_portal(api_key: str, settings: Settings) -> Optional[str]:
+    """
+    Validate API key via portal backend (GET .../api/portal/validate/?api_key=...).
+    Returns backend-provided prompt when valid and present; None when valid but no prompt.
+    Raises HTTPException: 401 invalid key, 502/503 upstream error or malformed response.
+    """
+    base = (settings.portal_base_url or "").strip().rstrip("/")
+    if not base:
+        return None
+    path = (settings.portal_validate_path or "api/portal/validate/").strip().lstrip("/")
+    url = f"{base}/{path}?{urlencode({'api_key': api_key})}"
+    timeout = settings.portal_validate_timeout_seconds
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.get(url)
+    except (httpx.TimeoutException, httpx.ConnectError) as e:
+        logger.warning("Portal validate request failed: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="API key validation service unavailable",
+        ) from e
+    except Exception as e:
+        logger.exception("Portal validate error: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="API key validation error",
+        ) from e
+
+    if r.status_code in (400, 401, 404):
+        logger.warning("Portal validate rejected key: status=%s", r.status_code)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid API key",
+        )
+    if r.status_code != 200:
+        logger.warning("Portal validate unexpected status: %s", r.status_code)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="API key validation returned an error",
+        )
+
+    try:
+        data = r.json()
+    except Exception as e:
+        logger.warning("Portal validate invalid JSON: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="API key validation returned invalid response",
+        ) from e
+    if not isinstance(data, dict):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="API key validation returned invalid response",
+        )
+    if data.get("valid") is not True:
+        logger.warning("Portal validate returned valid=false")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid API key",
+        )
+    prompt = data.get("prompt")
+    if isinstance(prompt, str) and prompt.strip():
+        return prompt.strip()
+    return None
+
+
 @router.post("/agent/run", response_model=schemas.AgentRunResponse)
 async def agent_run(
     request: Request,
@@ -34,7 +102,13 @@ async def agent_run(
     """
     Accepts either JSON body or multipart/form-data (with optional file uploads).
 
-    JSON body fields:  api_key, prompt, website_content, website_url
+    Request must include api_key. When AGENT_GATEWAY_PORTAL_BASE_URL is set, the key is validated
+    via the portal backend (GET api/portal/validate/?api_key=...); the backend may return a prompt,
+    which overrides any prompt in the request body. When portal is not configured, api_key is
+    checked against AGENT_GATEWAY_ALLOWED_API_KEYS (if set). A non-empty prompt is required:
+    either from the backend (when available) or from the request.
+
+    JSON body fields:  api_key (required), prompt (required if backend does not provide one), website_content, website_url
     Form-data fields:  api_key, prompt, website_content, website_url,
                        and any key for file(s), e.g. uploaded_file, file (one or more image/video files).
     In Postman: use Body -> form-data; add rows for api_key, prompt, etc., and set type to File for uploads.
@@ -94,18 +168,29 @@ async def agent_run(
             detail="api_key is required",
         )
 
-    validate_api_key(api_key, settings)
+    backend_prompt: Optional[str] = None
+    if settings.portal_base_url:
+        backend_prompt = await validate_api_key_with_portal(api_key, settings)
+    else:
+        validate_api_key(api_key, settings)
+
+    effective_prompt = (backend_prompt if (backend_prompt is not None and backend_prompt) else prompt) or None
+    if not (effective_prompt and effective_prompt.strip()):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="prompt is required (provide in request body or via backend for this API key)",
+        )
 
     logger.info(
         "agent/run request: prompt=%s website_content_len=%s website_url=%s files=%s",
-        "yes" if prompt else "no",
+        "yes" if effective_prompt else "no",
         len(website_content or ""),
         (website_url or "")[:80] if website_url else None,
         [f[1] for f in uploaded_files] if uploaded_files else [],
     )
 
     result = await run_agent(
-        prompt=prompt,
+        prompt=effective_prompt,
         website_content=website_content,
         website_url=website_url,
         settings=settings,

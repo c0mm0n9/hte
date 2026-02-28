@@ -2,6 +2,8 @@
 
 FastAPI **local processor** for the extension: Agent mode (chat: is content real? AI-generated?). Config (gateway URL, API key, etc.) lives in the **extension**; this service uses **env vars** only.
 
+**Note:** For the default setup, the extension uses **`backend/services/agent_gateway`** on port **8003**. This folder is an alternative, simpler local gateway. If you run this service, use a different port (e.g. `--port 8003`) because port 8000 conflicts with Django.
+
 ## Endpoints
 
 - **GET /v1/auth/validate** – Header `X-API-Key` → `{ "valid": true, "mode": "agent" | "control" }`
