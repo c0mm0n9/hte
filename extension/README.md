@@ -1,4 +1,4 @@
-# Kids Safety – Browser Extension
+# sIsland – Browser Extension
 
 Chrome extension (Manifest V3) with **Agent mode** (ask if content is real or AI-generated) and optional reporting/control features.
 
@@ -71,13 +71,13 @@ Open it in Chrome (`file:///.../test-page.html`). Keyword detection still runs; 
 
 ### 3. Inspect the extension
 
-- **Background (service worker)**: `chrome://extensions/` → find “Kids Safety” → click **Service worker** to open DevTools. Check **Console** for `[Kids Safety BG]` logs.
-- **Content script**: On any page, open DevTools (F12) → **Console**. Look for `[Kids Safety Content]`; you can also run `KIDS_SAFETY_PROCESSOR.processPageText('some text with weapon')`.
-- **Popup**: Right‑click the extension icon → **Inspect popup**; Console shows `[Kids Safety Popup]` logs.
+- **Background (service worker)**: `chrome://extensions/` → find “sIsland” → click **Service worker** to open DevTools. Check **Console** for `[sIsland BG]` logs.
+- **Content script**: On any page, open DevTools (F12) → **Console**. Look for `[sIsland Content]`; you can also run `KIDS_SAFETY_PROCESSOR.processPageText('some text with weapon')`.
+- **Popup**: Right‑click the extension icon → **Inspect popup**; Console shows `[sIsland Popup]` logs.
 
 ### 4. Debugging (why the extension isn't working)
 
-Logs use the prefix **`[Kids Safety Popup]`**, **`[Kids Safety Content]`**, **`[Kids Safety BG]`**. Set `DEBUG = true` in popup.js, content.js, and background.js (default on).
+Logs use the prefix **`[sIsland Popup]`**, **`[sIsland Content]`**, **`[sIsland BG]`**. Set `DEBUG = true` in popup.js, content.js, and background.js (default on).
 
 - **"Could not read page text"**: In **Popup console** see which step failed (sendMessage = content script not in tab → reload page; executeScript failed = restricted URL). In **Page console** check for `getPageText: … text length=0` if content script is present.
 - **Gateway errors**: Popup console shows `sendToAgent: gateway error` with status and body.
@@ -90,7 +90,7 @@ Logs use the prefix **`[Kids Safety Popup]`**, **`[Kids Safety Content]`**, **`[
 | Load | Load unpacked from `extension` folder |
 | Browse | Open a normal or test page (http/https); reload after installing/updating |
 | Analyze | Click extension icon → Agent → Analyze page |
-| Debug | Inspect popup + page DevTools Console; filter by "Kids Safety" |
+| Debug | Inspect popup + page DevTools Console; filter by "sIsland" |
 
 ## Config
 

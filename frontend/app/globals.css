@@ -3,13 +3,60 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  /* Sea (ocean blue) – primary / links */
+  --color-sea-50: #f0f9ff;
+  --color-sea-100: #e0f2fe;
+  --color-sea-200: #bae6fd;
+  --color-sea-300: #7dd3fc;
+  --color-sea-400: #38bdf8;
+  --color-sea-500: #0ea5e9;
+  --color-sea-600: #0284c7;
+  --color-sea-700: #0369a1;
+  --color-sea-800: #075985;
+  --color-sea-900: #0c4a6e;
+  --color-sea-950: #082f49;
+  /* Sand (beige/tan) – backgrounds / title “Island” */
+  --color-sand-50: #fefdfb;
+  --color-sand-100: #fef7ed;
+  --color-sand-200: #fef3c7;
+  --color-sand-300: #fde68a;
+  --color-sand-400: #e8dcc4;
+  --color-sand-500: #d4c4a8;
+  --color-sand-600: #c9b896;
+  --color-sand-700: #a89880;
+  --color-sand-800: #8b7355;
+  --color-sand-900: #6b5344;
+  --color-sand-950: #4a3728;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-sans);
   --font-mono: var(--font-geist-mono);
+  --font-title: var(--font-caveat-brush);
+  --color-sea-50: var(--color-sea-50);
+  --color-sea-100: var(--color-sea-100);
+  --color-sea-200: var(--color-sea-200);
+  --color-sea-300: var(--color-sea-300);
+  --color-sea-400: var(--color-sea-400);
+  --color-sea-500: var(--color-sea-500);
+  --color-sea-600: var(--color-sea-600);
+  --color-sea-700: var(--color-sea-700);
+  --color-sea-800: var(--color-sea-800);
+  --color-sea-900: var(--color-sea-900);
+  --color-sea-950: var(--color-sea-950);
+  --color-sand-50: var(--color-sand-50);
+  --color-sand-100: var(--color-sand-100);
+  --color-sand-200: var(--color-sand-200);
+  --color-sand-300: var(--color-sand-300);
+  --color-sand-400: var(--color-sand-400);
+  --color-sand-500: var(--color-sand-500);
+  --color-sand-600: var(--color-sand-600);
+  --color-sand-700: var(--color-sand-700);
+  --color-sand-800: var(--color-sand-800);
+  --color-sand-900: var(--color-sand-900);
+  --color-sand-950: var(--color-sand-950);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -22,5 +69,5 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), system-ui, sans-serif;
 }

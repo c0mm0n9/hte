@@ -1,4 +1,4 @@
-# Kids Safety Extension – Design (Two Modes)
+# sIsland Extension – Design (Two Modes)
 
 ## System architecture (high level)
 
@@ -56,7 +56,7 @@ The extension operates in **one of two modes** per device/kid (set by the parent
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  Kids Safety Extension                                                       │
+│  sIsland Extension                                                            │
 │  Mode = Agent | Control (per device, from portal)                           │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  AGENT MODE                          │  CONTROL MODE                         │

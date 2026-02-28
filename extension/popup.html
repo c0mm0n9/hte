@@ -3,38 +3,56 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Kids Safety</title>
+  <title>sIsland</title>
+  <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet" />
   <style>
+    :root {
+      --sea-500: #0ea5e9;
+      --sea-600: #0284c7;
+      --sea-700: #0369a1;
+      --sand-100: #fef7ed;
+      --sand-200: #e8dcc4;
+      --sand-700: #a89880;
+    }
     * { box-sizing: border-box; }
     body {
-      font-family: system-ui, -apple-system, sans-serif;
+      font-family: 'Source Sans 3', system-ui, -apple-system, sans-serif;
       font-size: 13px;
       margin: 0;
       padding: 12px;
       min-width: 320px;
       max-width: 380px;
       min-height: 280px;
-      color: #1a1a1a;
-      background: #f8f9fa;
+      color: #4a3728;
+      background: var(--sand-100);
     }
-    h1 { font-size: 14px; font-weight: 600; margin: 0 0 10px 0; color: #333; }
-    .url-row { margin-bottom: 10px; padding: 6px 8px; background: #e9ecef; border-radius: 6px; font-size: 11px; color: #495057; word-break: break-all; }
-    .url-row strong { color: #212529; }
-    label { display: block; font-weight: 500; margin-bottom: 4px; color: #495057; }
-    textarea { width: 100%; min-height: 72px; padding: 8px; border: 1px solid #dee2e6; border-radius: 6px; font: inherit; resize: vertical; margin-bottom: 8px; }
-    textarea:focus { outline: none; border-color: #0d6efd; box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.2); }
-    button { width: 100%; padding: 8px 12px; font: inherit; font-weight: 500; color: #fff; background: #0d6efd; border: none; border-radius: 6px; cursor: pointer; }
-    button:hover { background: #0b5ed7; }
+    h1 { font-size: 14px; font-weight: 600; margin: 0 0 10px 0; color: var(--sand-700); }
+    .url-row { margin-bottom: 10px; padding: 6px 8px; background: var(--sand-200); border-radius: 6px; font-size: 11px; color: #6b5344; word-break: break-all; }
+    .url-row strong { color: #4a3728; }
+    label { display: block; font-weight: 500; margin-bottom: 4px; color: #4a3728; }
+    textarea { width: 100%; min-height: 72px; padding: 8px; border: 1px solid var(--sand-200); border-radius: 6px; font: inherit; resize: vertical; margin-bottom: 8px; background: #fff; }
+    textarea:focus { outline: none; border-color: var(--sea-500); box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.2); }
+    button { width: 100%; padding: 8px 12px; font: inherit; font-weight: 500; color: #fff; background: var(--sea-600); border: none; border-radius: 6px; cursor: pointer; }
+    button:hover { background: var(--sea-700); }
     button:disabled { opacity: 0.6; cursor: not-allowed; }
-    .reply-box { margin-top: 12px; padding: 10px; background: #fff; border: 1px solid #dee2e6; border-radius: 6px; white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.45; min-height: 60px; }
-    .reply-box.empty { color: #868e96; }
-    .reply-box strong { color: #0d6efd; }
+    .reply-box { margin-top: 12px; padding: 10px; background: #fff; border: 1px solid var(--sand-200); border-radius: 6px; white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.45; min-height: 60px; }
+    .reply-box.empty { color: var(--sand-700); }
+    .reply-box strong { color: var(--sea-600); }
     .error { color: #dc3545; }
     .panel { display: none; }
     .panel.active { display: block; }
-    .setup-panel p { margin: 0 0 12px 0; color: #495057; line-height: 1.5; }
-    .setup-panel a { color: #0d6efd; }
-    .control-panel p { color: #495057; }
+    .setup-panel p { margin: 0 0 12px 0; color: #6b5344; line-height: 1.5; }
+    .setup-panel a { color: var(--sea-600); }
+    .control-panel p { color: #6b5344; }
+    .popup-header {
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin: -4px 0 12px 0;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--sand-200);
+    }
+    .popup-header .title-sea { color: var(--sea-600); }
+    .popup-header .title-sand { color: var(--sand-700); }
   </style>
 </head>
 <body>
@@ -44,6 +62,9 @@
     <p><a href="#" id="open-options">Open extension options to enter API key</a></p>
   </div>
   <div id="control-panel" class="panel control-panel">
+    <header class="popup-header">
+      <span class="title-sea">s</span><span class="title-sand">Island</span>
+    </header>
     <h1>Control mode</h1>
     <p>This device is in Control mode. Blocking and explainer videos are active.</p>
   </div>
@@ -59,7 +80,6 @@
   </div>
   <script src="config.js"></script>
   <script src="lib/pii.js"></script>
-  <script src="lib/llm.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

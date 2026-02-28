@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .routers import agent, auth
 
-app = FastAPI(title="Kids Safety Gateway", version="0.1.0")
+app = FastAPI(title="sIsland Gateway", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,

@@ -1,13 +1,13 @@
 {
   "manifest_version": 3,
-  "name": "Kids Safety",
+  "name": "s-Island",
   "version": "0.1.0",
-  "description": "Kids Safety: Agent mode (ask if content is real or AI-generated) and Control mode (blacklist + block).",
+  "description": "digital ecosystem to safely surf in the sea of information",
   "permissions": ["storage", "activeTab", "tabs", "scripting", "webNavigation"],
   "host_permissions": ["<all_urls>", "http://localhost:8000/*", "http://localhost:8003/*", "http://localhost:11434/*", "http://127.0.0.1:7559/*", "https://*/*"],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Kids Safety"
+    "default_title": "s-Island"
   },
   "options_ui": {
     "page": "options.html",

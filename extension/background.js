@@ -6,7 +6,7 @@ const CONFIG = {
 
 const DEBUG = true;
 function log(...args) {
-  if (DEBUG) console.log('[Kids Safety BG]', ...args);
+  if (DEBUG) console.log('[sIsland BG]', ...args);
 }
 
 const BLACKLIST_CACHE_MS = 5 * 60 * 1000;

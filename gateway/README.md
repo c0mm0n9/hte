@@ -1,4 +1,4 @@
-# Kids Safety – Local processor (gateway)
+# sIsland – Local processor (gateway)
 
 FastAPI **local processor** for the extension: Agent mode (chat: is content real? AI-generated?). Config (gateway URL, API key, etc.) lives in the **extension**; this service uses **env vars** only.
 

@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Source_Sans_3, Geist_Mono, Caveat_Brush } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const sourceSans = Source_Sans_3({
+  variable: "--font-sans",
   subsets: ["latin"],
 });
 
@@ -12,9 +12,15 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const caveatBrush = Caveat_Brush({
+  variable: "--font-caveat-brush",
+  subsets: ["latin"],
+  weight: "400",
+});
+
 export const metadata: Metadata = {
-  title: "hSafety — Safe Browsing for Children",
-  description: "Keep children safe online with fake news detection, AI content alerts, and harmful content filtering",
+  title: "sIsland — digital ecosystem to safely surf in the sea of information",
+  description: "digital ecosystem to safely surf in the sea of information",
 };
 
 export default function RootLayout({
@@ -25,7 +31,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${sourceSans.variable} ${geistMono.variable} ${caveatBrush.variable} font-sans antialiased`}
       >
         {children}
       </body>

@@ -5,7 +5,7 @@
 (function () {
   const DEBUG = true;
   function log(...args) {
-    if (DEBUG) console.log('[Kids Safety Content]', ...args);
+    if (DEBUG) console.log('[sIsland Content]', ...args);
   }
 
   function isExtensionContextValid() {

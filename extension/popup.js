@@ -2,13 +2,12 @@ const GATEWAY_BASE_URL = (typeof globalThis !== 'undefined' && globalThis.KIDS_S
 const AGENT_RUN_URL = GATEWAY_BASE_URL.replace(/\/$/, '') + '/v1/agent/run';
 const STORAGE_KEY = 'kidsSafetyApiKey';
 const STORAGE_MODE = 'kidsSafetyMode';
-const STORAGE_OLLAMA_URL = 'kidsSafetyOllamaUrl';
 const STORAGE_SEND_FACT = 'kidsSafetySendFactCheck';
 const STORAGE_SEND_MEDIA = 'kidsSafetySendMediaCheck';
 
 const DEBUG = true;
 function log(...args) {
-  if (DEBUG) console.log('[Kids Safety Popup]', ...args);
+  if (DEBUG) console.log('[sIsland Popup]', ...args);
 }
 
 const setupPanel = document.getElementById('setup-panel');
@@ -252,17 +251,7 @@ async function sendToAgent() {
       textChanged: maskedText !== pageText,
     });
 
-    const ollamaUrl = await new Promise(function (resolve) {
-      chrome.storage.local.get([STORAGE_OLLAMA_URL], function (data) {
-        resolve(data[STORAGE_OLLAMA_URL] || '');
-      });
-    });
-
-    setReply('Extracting content with local LLM…');
-    const extractFn = globalThis.KIDS_SAFETY_LLM && globalThis.KIDS_SAFETY_LLM.extractImportantContent;
-    const extracted = extractFn
-      ? await extractFn(maskedText.slice(0, 50000), ollamaUrl || null)
-      : maskedText.slice(0, 12000);
+    const extracted = maskedText.slice(0, 12000);
 
     const allMediaUrls = [...(content.imageUrls || []), ...(content.videoUrls || [])];
     const imageCount = (content.imageUrls || []).length;

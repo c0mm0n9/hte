@@ -15,6 +15,7 @@ import {
   addBlacklistEntry,
   deleteBlacklistEntry,
 } from '@/lib/api';
+import { SIslandLogo } from '@/app/components/sIslandLogo';
 
 const DRAG_TYPE = 'application/x-hsafety-domain';
 
@@ -126,7 +127,7 @@ function VisitDetailModal({
               href={site.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600"
+              className="inline-flex rounded-lg bg-sea-600 px-4 py-2 text-sm font-medium text-white hover:bg-sea-700 dark:bg-sea-500 dark:hover:bg-sea-600"
             >
               Open website →
             </a>
@@ -178,7 +179,7 @@ function VisitedSitesTable({ sites, onSelectSite }: { sites: VisitedSite[]; onSe
                   onSelectSite?.(site);
                 }
               }}
-              className="cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/30 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-inset"
+              className="cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/30 focus:outline-none focus:ring-2 focus:ring-sea-500 focus:ring-inset"
             >
               <td className="px-4 py-3">
                 <span className="max-w-[280px] truncate font-medium text-zinc-900 dark:text-zinc-100 block">
@@ -452,8 +453,8 @@ export default function PortalPage() {
       <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
         <div className="mx-auto max-w-6xl px-4 py-4 sm:px-6 flex items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <Link href="/" className="text-lg font-semibold text-emerald-600 dark:text-emerald-400 hover:underline">
-              hSafety
+            <Link href="/" className="text-lg font-semibold hover:underline">
+              <SIslandLogo />
             </Link>
             <div>
               <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
@@ -536,7 +537,7 @@ export default function PortalPage() {
                 <button
                   type="submit"
                   disabled={addDeviceLoading || !addLabel.trim() || (addDeviceType === 'control' && !addAgenticPrompt.trim())}
-                  className="w-full rounded-md bg-emerald-600 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50 dark:bg-emerald-500 dark:hover:bg-emerald-600"
+                  className="w-full rounded-md bg-sea-600 py-2 text-sm font-medium text-white hover:bg-sea-700 disabled:opacity-50 dark:bg-sea-500 dark:hover:bg-sea-600"
                 >
                   {addDeviceLoading ? 'Adding…' : 'Add device'}
                 </button>
@@ -553,7 +554,7 @@ export default function PortalPage() {
                       <div
                         className={`flex overflow-hidden rounded-lg text-sm font-medium transition-colors ${
                           selectedDeviceId === device.id
-                            ? 'bg-emerald-600 text-white dark:bg-emerald-500'
+                            ? 'bg-sea-600 text-white dark:bg-sea-500'
                             : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'
                         }`}
                       >
@@ -570,7 +571,7 @@ export default function PortalPage() {
                           disabled={deletingId === device.id}
                           className={`shrink-0 border-l px-2 py-2 transition-colors ${
                             selectedDeviceId === device.id
-                              ? 'border-emerald-500/50 hover:bg-red-100 hover:text-red-700 dark:border-emerald-400/30 dark:hover:bg-red-900/30 dark:hover:text-red-400'
+                              ? 'border-sea-500/50 hover:bg-red-100 hover:text-red-700 dark:border-sea-400/30 dark:hover:bg-red-900/30 dark:hover:text-red-400'
                               : 'border-zinc-200 dark:border-zinc-600 hover:bg-red-100 hover:text-red-700 dark:hover:bg-red-900/30 dark:hover:text-red-400'
                           } disabled:opacity-50`}
                           title="Remove device"
@@ -635,6 +636,7 @@ export default function PortalPage() {
               </div>
             ) : (
               <>
+            {selectedDevice.device_type !== 'agentic' && (
             <section className="mb-6 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
                 <h2 className="mb-3 text-lg font-medium text-zinc-900 dark:text-zinc-100">
                   Whitelist, Blacklist & Visited list {selectedDevice.label}
@@ -822,6 +824,8 @@ export default function PortalPage() {
                   </div>
                 </div>
               </section>
+            )}
+            {selectedDevice.device_type !== 'agentic' && (
             <section>
               <h2 className="mb-3 text-lg font-medium text-zinc-900 dark:text-zinc-100">
                 Visited list (full) — {selectedDevice.label}
@@ -831,7 +835,8 @@ export default function PortalPage() {
               </p>
               <VisitedSitesTable sites={sites} onSelectSite={setSelectedVisit} />
             </section>
-            {selectedVisit && (
+            )}
+            {selectedDevice.device_type !== 'agentic' && selectedVisit && (
               <VisitDetailModal site={selectedVisit} onClose={() => setSelectedVisit(null)} />
             )}
               </>
