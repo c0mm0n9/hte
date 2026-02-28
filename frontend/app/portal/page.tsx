@@ -459,7 +459,7 @@ export default function PortalPage() {
             </Link>
             <div>
               <h1 className="font-title text-xl font-semibold text-emerald-900 dark:text-emerald-100">
-                Parents portal
+                Admin portal
               </h1>
               <p className="mt-0.5 text-sm text-zinc-600 dark:text-zinc-400">
                 View device activity and detection alerts

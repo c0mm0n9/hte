@@ -4,10 +4,13 @@ from pydantic import BaseModel, Field
 
 
 class AgentRunRequest(BaseModel):
-    """Request: API key (required), optional prompt, optional website content."""
+    """Request: API key (required); prompt required from body or from backend when portal validation is used."""
 
     api_key: str = Field(..., description="API key for authentication")
-    prompt: Optional[str] = Field(None, description="Optional user prompt, e.g. 'I need to analyze this website for safety'")
+    prompt: Optional[str] = Field(
+        None,
+        description="User prompt for the agent. When portal backend is configured, backend may provide prompt (overrides this).",
+    )
     website_content: Optional[str] = Field(
         None,
         description="Optional page text or HTML for the LLM to choose text/media for analysis",

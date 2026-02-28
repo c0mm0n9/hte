@@ -102,7 +102,7 @@ export type RegisterResponse = {
   status: string;
 };
 
-export async function registerParent(payload: RegisterPayload): Promise<RegisterResponse> {
+export async function registerAdmin(payload: RegisterPayload): Promise<RegisterResponse> {
   const res = await fetch(`${API_BASE}/api/portal/register/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

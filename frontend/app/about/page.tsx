@@ -62,7 +62,7 @@ export default function AboutPage() {
                 University of Hong Kong · Full-stack developer
               </p>
               <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-                Arsen builds and maintains the backend and portal so parents get clear reports and control. He keeps the stack robust and the experience simple for families.
+                Arsen builds and maintains the backend and admin portal so admins get clear reports and control. He keeps the stack robust and the experience simple for families.
               </p>
             </div>
           </div>

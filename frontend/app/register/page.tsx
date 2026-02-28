@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { registerParent } from '@/lib/api';
+import { registerAdmin } from '@/lib/api';
 import { SIslandLogo } from '@/app/components/SIslandLogo';
 
 export default function RegisterPage() {
@@ -31,7 +31,7 @@ export default function RegisterPage() {
     }
     setLoading(true);
     try {
-      await registerParent({ username, password, email });
+      await registerAdmin({ username, password, email });
       setSuccess(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Registration failed');
@@ -95,7 +95,7 @@ export default function RegisterPage() {
       </header>
       <main className="mx-auto flex max-w-md flex-col items-center justify-center px-4 py-16">
         <div className="animate-scale-in w-full rounded-2xl border border-emerald-200/80 bg-white p-8 shadow-lg dark:border-emerald-800/50 dark:bg-emerald-950/40">
-          <h1 className="animate-fade-in-up font-title text-xl font-semibold text-emerald-800 dark:text-emerald-100">Parent registration</h1>
+          <h1 className="animate-fade-in-up font-title text-xl font-semibold text-emerald-800 dark:text-emerald-100">Admin registration</h1>
           <p className="animate-fade-in-up animate-delay-100 mt-1 text-sm text-emerald-700/80 dark:text-emerald-200/80">
             Create an account to manage devices and view activity.
           </p>
