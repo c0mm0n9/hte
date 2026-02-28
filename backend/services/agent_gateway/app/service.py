@@ -19,7 +19,7 @@ from .config import Settings
 
 logger = logging.getLogger("agent_gateway")
 from .llm import chat_completions, parse_json_from_content
-from .schemas import AgentRunResponse, FakeFact, FakeMediaChunk, FakeMediaItem
+from .schemas import AgentRunResponse, FakeFact, FakeMediaChunk, FakeMediaItem, TrueFact
 
 
 ACTIONS_SYSTEM_PROMPT = """You are a safety-analysis agent. Given the user prompt and optional website content, output ONLY a valid JSON array of actions. No markdown, no code fences, no explanation.
@@ -213,6 +213,50 @@ async def run_trust_score_llm(
     return 50
 
 
+# Threshold above which a chunk is considered "fake" (AI-generated/deepfake)
+MEDIA_FAKE_THRESHOLD = 0.5
+
+
+def _media_item_from_result(data: dict[str, Any]) -> FakeMediaItem | None:
+    """Build a FakeMediaItem from a media_checking result dict."""
+    if data.get("error"):
+        return None
+    media_url = data.get("media_url") or ""
+    chunks_raw = data.get("chunks") or []
+    chunks = []
+    for c in chunks_raw:
+        if isinstance(c, dict):
+            chunks.append(
+                FakeMediaChunk(
+                    index=c.get("index", 0),
+                    start_seconds=c.get("start_seconds", 0.0),
+                    end_seconds=c.get("end_seconds", 0.0),
+                    ai_generated_score=c.get("ai_generated_score"),
+                    deepfake_score=c.get("deepfake_score"),
+                    label=c.get("label", ""),
+                    provider_raw=c.get("provider_raw"),
+                )
+            )
+    return FakeMediaItem(
+        media_url=str(media_url),
+        media_type=data.get("media_type", ""),
+        duration_seconds=float(data.get("duration_seconds", 0)),
+        chunk_seconds=int(data.get("chunk_seconds", 0)),
+        provider=data.get("provider", ""),
+        chunks=chunks,
+    )
+
+
+def _media_is_fake(item: FakeMediaItem) -> bool:
+    """True if any chunk has ai_generated_score or deepfake_score >= threshold."""
+    for c in item.chunks:
+        ag = c.ai_generated_score
+        df = c.deepfake_score
+        if (ag is not None and ag >= MEDIA_FAKE_THRESHOLD) or (df is not None and df >= MEDIA_FAKE_THRESHOLD):
+            return True
+    return False
+
+
 def build_fake_facts(action_results: list[tuple[str, Any]]) -> list[FakeFact]:
     """Collect fact_check results where truth_value is False."""
     out: list[FakeFact] = []
@@ -231,40 +275,45 @@ def build_fake_facts(action_results: list[tuple[str, Any]]) -> list[FakeFact]:
     return out
 
 
+def build_true_facts(action_results: list[tuple[str, Any]]) -> list[TrueFact]:
+    """Collect fact_check results where truth_value is True."""
+    out: list[TrueFact] = []
+    for kind, data in action_results:
+        if kind != "fact_check":
+            continue
+        facts_list = data.get("facts") or []
+        for item in facts_list:
+            if isinstance(item, dict) and item.get("truth_value") is True:
+                out.append(
+                    TrueFact(
+                        truth_value=True,
+                        explanation=item.get("explanation") or "",
+                    )
+                )
+    return out
+
+
 def build_fake_media(action_results: list[tuple[str, Any]]) -> list[FakeMediaItem]:
-    """Build fake_media from media_checking responses."""
+    """Build fake_media: items where any chunk exceeds fake threshold."""
     out: list[FakeMediaItem] = []
     for kind, data in action_results:
         if kind != "ai_media_detection":
             continue
-        if data.get("error"):
+        item = _media_item_from_result(data)
+        if item is not None and _media_is_fake(item):
+            out.append(item)
+    return out
+
+
+def build_true_media(action_results: list[tuple[str, Any]]) -> list[FakeMediaItem]:
+    """Build true_media: items where no chunk exceeds fake threshold."""
+    out: list[FakeMediaItem] = []
+    for kind, data in action_results:
+        if kind != "ai_media_detection":
             continue
-        media_url = data.get("media_url") or ""
-        chunks_raw = data.get("chunks") or []
-        chunks = []
-        for c in chunks_raw:
-            if isinstance(c, dict):
-                chunks.append(
-                    FakeMediaChunk(
-                        index=c.get("index", 0),
-                        start_seconds=c.get("start_seconds", 0.0),
-                        end_seconds=c.get("end_seconds", 0.0),
-                        ai_generated_score=c.get("ai_generated_score"),
-                        deepfake_score=c.get("deepfake_score"),
-                        label=c.get("label", ""),
-                        provider_raw=c.get("provider_raw"),
-                    )
-                )
-        out.append(
-            FakeMediaItem(
-                media_url=str(media_url),
-                media_type=data.get("media_type", ""),
-                duration_seconds=float(data.get("duration_seconds", 0)),
-                chunk_seconds=int(data.get("chunk_seconds", 0)),
-                provider=data.get("provider", ""),
-                chunks=chunks,
-            )
-        )
+        item = _media_item_from_result(data)
+        if item is not None and not _media_is_fake(item):
+            out.append(item)
     return out
 
 
@@ -287,10 +336,23 @@ async def run_agent(
 
     trust_score = await run_trust_score_llm(action_results, settings)
     fake_facts = build_fake_facts(action_results)
+    true_facts = build_true_facts(action_results)
     fake_media = build_fake_media(action_results)
+    true_media = build_true_media(action_results)
+
+    logger.info(
+        "Compiled response: trust_score=%s fake_facts=%s true_facts=%s fake_media=%s true_media=%s",
+        trust_score,
+        len(fake_facts),
+        len(true_facts),
+        len(fake_media),
+        len(true_media),
+    )
 
     return AgentRunResponse(
         trust_score=trust_score,
         fake_facts=fake_facts,
         fake_media=fake_media,
+        true_facts=true_facts,
+        true_media=true_media,
     )

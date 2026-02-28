@@ -16,6 +16,7 @@ def validate_api_key(api_key: str, settings: Settings) -> None:
         return
     allowed = {k.strip() for k in settings.allowed_api_keys.split(",") if k.strip()}
     if allowed and api_key not in allowed:
+        logger.warning("Agent run rejected: invalid API key")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid API key",
@@ -44,9 +45,11 @@ async def agent_run(
         settings=settings,
     )
     logger.info(
-        "agent/run done: trust_score=%s fake_facts=%s fake_media=%s",
+        "agent/run done: trust_score=%s fake_facts=%s fake_media=%s true_facts=%s true_media=%s",
         result.trust_score,
         len(result.fake_facts),
         len(result.fake_media),
+        len(result.true_facts),
+        len(result.true_media),
     )
     return result

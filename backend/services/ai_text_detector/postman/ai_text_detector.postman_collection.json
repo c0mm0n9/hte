@@ -1,0 +1,131 @@
+{
+	"info": {
+		"_postman_id": "ai-text-detector-collection",
+		"name": "AI Text Detector",
+		"description": "Tests for the AI Text Detector service (`/v1/ai-detect` and health).",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8000"
+		}
+	],
+	"item": [
+		{
+			"name": "Health",
+			"item": [
+				{
+					"name": "GET healthz",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": "{{baseUrl}}/healthz",
+						"description": "Health check endpoint."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "AI Detect",
+			"item": [
+				{
+					"name": "POST ai-detect (success)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"text\": \"This is a sample paragraph. It contains multiple sentences for detection. The AI detector will analyze each one.\"\n}"
+						},
+						"url": "{{baseUrl}}/v1/ai-detect",
+						"description": "Detect AI-generated text. Returns overall_score, sentence_scores, provider, and optional provider_raw."
+					},
+					"response": []
+				},
+				{
+					"name": "POST ai-detect (short text)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"text\": \"Hello world.\"\n}"
+						},
+						"url": "{{baseUrl}}/v1/ai-detect",
+						"description": "Minimal valid request with short text."
+					},
+					"response": []
+				},
+				{
+					"name": "POST ai-detect (empty text - 400)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"text\": \"\"\n}"
+						},
+						"url": "{{baseUrl}}/v1/ai-detect",
+						"description": "Expect 400: text is required and must be non-empty."
+					},
+					"response": []
+				},
+				{
+					"name": "POST ai-detect (whitespace only - 400)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"text\": \"   \"\n}"
+						},
+						"url": "{{baseUrl}}/v1/ai-detect",
+						"description": "Expect 400: text is required and must be non-empty (whitespace is stripped)."
+					},
+					"response": []
+				},
+				{
+					"name": "POST ai-detect (missing text - 422)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{}"
+						},
+						"url": "{{baseUrl}}/v1/ai-detect",
+						"description": "Expect 422: validation error (text field missing)."
+					},
+					"response": []
+				}
+			]
+		}
+	]
+}

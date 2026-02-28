@@ -15,8 +15,13 @@ logger = logging.getLogger("agent_gateway")
 def create_app() -> FastAPI:
     app = FastAPI(title="Agent Gateway Service", version="1.0.0")
 
+    @app.on_event("startup")
+    async def startup() -> None:
+        logger.info("Agent Gateway starting")
+
     @app.get("/healthz")
     async def healthz() -> dict:
+        logger.debug("healthz")
         return {"status": "ok"}
 
     app.include_router(agent.router, prefix="/v1")
