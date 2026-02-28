@@ -8,6 +8,14 @@
     if (DEBUG) console.log('[Kids Safety Content]', ...args);
   }
 
+  function isExtensionContextValid() {
+    try {
+      return !!chrome.runtime?.id;
+    } catch (_) {
+      return false;
+    }
+  }
+
   const processor = globalThis.KIDS_SAFETY_PROCESSOR;
 
   function getPageText() {
@@ -122,18 +130,23 @@
   }
 
   chrome.runtime.onMessage.addListener(function (msg, _sender, sendResponse) {
+    function safeSendResponse(value) {
+      try {
+        if (isExtensionContextValid()) sendResponse(value);
+      } catch (_) {}
+    }
     if (msg.type === 'GET_PAGE_CONTENT') {
       const text = getPageText();
       const mediaUrls = getMediaUrls();
       log('GET_PAGE_CONTENT: text length=', text.length, 'mediaUrls=', mediaUrls.length);
-      sendResponse({ text, mediaUrls });
+      safeSendResponse({ text, mediaUrls });
       return false;
     }
     if (msg.type === 'GET_PAGE_CONTENT_WITH_MEDIA') {
       log('GET_PAGE_CONTENT_WITH_MEDIA: start');
       getPageContentWithMedia().then(function (res) {
         log('GET_PAGE_CONTENT_WITH_MEDIA: done text length=', (res && res.text || '').length);
-        sendResponse(res);
+        safeSendResponse(res);
       });
       return true;
     }
@@ -154,20 +167,23 @@
   }
 
   function collectAndSend() {
-    const text = getPageText();
-    const result = processor.processPageText(text);
-    if (!result) return;
+    if (!isExtensionContextValid()) return;
+    try {
+      const text = getPageText();
+      const result = processor.processPageText(text);
+      if (!result) return;
 
-    const { url, domain } = getUrlAndDomain();
-    const payload = processor.buildReportPayload({
-      url,
-      domain,
-      keywords: result.keywords,
-      audio: { has_audio: false },
-      video: { has_video: !!document.querySelector('video') },
-    });
+      const { url, domain } = getUrlAndDomain();
+      const payload = processor.buildReportPayload({
+        url,
+        domain,
+        keywords: result.keywords,
+        audio: { has_audio: false },
+        video: { has_video: !!document.querySelector('video') },
+      });
 
-    chrome.runtime.sendMessage({ type: 'PAGE_SIGNAL', payload }).catch(() => {});
+      chrome.runtime.sendMessage({ type: 'PAGE_SIGNAL', payload }).catch(function () {});
+    } catch (_) {}
   }
 
   let scheduled = null;
@@ -191,4 +207,52 @@
     subtree: true,
     characterData: true,
   });
+
+  /** Simple predator-risk phrase check (expand or replace with API later). */
+  function checkPredatorRisk(text) {
+    if (!text || typeof text !== 'string') return false;
+    const lower = text.toLowerCase();
+    const phrases = [
+      'meet in person', 'don\'t tell your parents', 'send your photo',
+      'private chat', 'keep this secret', 'meet me alone', 'send your address',
+    ];
+    for (let i = 0; i < phrases.length; i++) {
+      if (lower.includes(phrases[i])) return true;
+    }
+    return false;
+  }
+
+  function sendPageVisit() {
+    if (!isExtensionContextValid()) return;
+    try {
+      const url = window.location.href;
+      const title = document.title || '';
+      const text = getPageText();
+      let has_harmful_content = false;
+      let has_pii = false;
+      let has_predators = false;
+      if (processor) {
+        const result = processor.processPageText(text);
+        if (result) {
+          has_harmful_content = !!(result.keywords && result.keywords.matchedCategories && result.keywords.matchedCategories.length > 0);
+          has_pii = !!result.piiDetected;
+        }
+      }
+      has_predators = checkPredatorRisk(text);
+
+      chrome.runtime.sendMessage({
+        type: 'PAGE_VISIT',
+        url: url,
+        title: title,
+        has_harmful_content: has_harmful_content,
+        has_pii: has_pii,
+        has_predators: has_predators,
+      }).catch(function () {});
+    } catch (_) {}
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', sendPageVisit);
+  } else {
+    sendPageVisit();
+  }
 })();

@@ -1,7 +1,8 @@
 /**
- * Extension config. For Docker: agent_gateway is on port 8003.
+ * Extension config. Portal = Django backend (validate, record-visit). Gateway = agent_gateway (analyze).
  */
 const CONFIG = {
+  PORTAL_API_BASE: 'http://localhost:8000',
   GATEWAY_BASE_URL: 'http://localhost:8003',
 };
 

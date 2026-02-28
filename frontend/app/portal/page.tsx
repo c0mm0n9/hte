@@ -99,13 +99,21 @@ function VisitDetailModal({
               {new Date(site.visited_at).toLocaleString()}
             </p>
           </div>
+          {site.updated_at && site.updated_at !== site.visited_at && (
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Last updated</p>
+              <p className="mt-0.5 text-zinc-700 dark:text-zinc-300">
+                {new Date(site.updated_at).toLocaleString()}
+              </p>
+            </div>
+          )}
           <div className="flex flex-wrap gap-2">
-            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Harmful</span>
-            <DetectionBadge value={site.ai_detected} />
-            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Private information leakage</span>
-            <DetectionBadge value={site.fake_news_detected} />
-            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Possible predators</span>
-            <DetectionBadge value={site.harmful_content_detected} />
+            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Harmful content</span>
+            <DetectionBadge value={site.has_harmful_content ?? site.harmful_content_detected ?? false} />
+            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">PII</span>
+            <DetectionBadge value={site.has_pii ?? false} />
+            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Predators</span>
+            <DetectionBadge value={site.has_predators ?? false} />
           </div>
           {site.notes && (
             <div>
@@ -147,13 +155,13 @@ function VisitedSitesTable({ sites, onSelectSite }: { sites: VisitedSite[]; onSe
               Visited
             </th>
             <th scope="col" className="px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
-              Harmful
+              Harmful content
             </th>
             <th scope="col" className="px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
-              Private information leakage
+              PII
             </th>
             <th scope="col" className="px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
-              Possible predators
+              Predators
             </th>
           </tr>
         </thead>
@@ -186,13 +194,13 @@ function VisitedSitesTable({ sites, onSelectSite }: { sites: VisitedSite[]; onSe
                 {new Date(site.visited_at).toLocaleString()}
               </td>
               <td className="px-4 py-3 text-center">
-                <DetectionBadge value={site.ai_detected} />
+                <DetectionBadge value={site.has_harmful_content ?? site.harmful_content_detected ?? false} />
               </td>
               <td className="px-4 py-3 text-center">
-                <DetectionBadge value={site.fake_news_detected} />
+                <DetectionBadge value={site.has_pii ?? false} />
               </td>
               <td className="px-4 py-3 text-center">
-                <DetectionBadge value={site.harmful_content_detected} />
+                <DetectionBadge value={site.has_predators ?? false} />
               </td>
             </tr>
           ))}

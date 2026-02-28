@@ -61,6 +61,13 @@
   <p class="hint">Suffix <code>-agent</code> = ask-if-real / AI-generated. Suffix <code>-control</code> = blacklist + block.</p>
   <button type="button" id="save-btn">Save and validate</button>
   <button type="button" id="clear-btn" class="secondary">Clear key</button>
+  <p style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #dee2e6;"><strong>Change API key</strong></p>
+  <p>Enter your current API key and a new key from the portal. Both must exist in the portal (backend).</p>
+  <label for="current-key">Current API key</label>
+  <input type="text" id="current-key" placeholder="Current key (must match saved key)" autocomplete="off" />
+  <label for="new-key">New API key</label>
+  <input type="text" id="new-key" placeholder="New key from portal" autocomplete="off" />
+  <button type="button" id="change-key-btn">Change API key</button>
   <p style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #dee2e6;"><strong>LLM (optional)</strong></p>
   <p>Use a local open-source LLM to extract important content from the page before sending to the gateway. Install <a href="https://ollama.com" target="_blank" rel="noopener">Ollama</a> and pull a model (e.g. <code>ollama pull llama3.2</code>).</p>
   <label for="ollama-url">Ollama URL</label>
@@ -68,6 +75,7 @@
   <p class="hint">Leave empty to send truncated page text only (no local LLM).</p>
   <button type="button" id="save-ollama-btn">Save Ollama URL</button>
   <div id="status" class="status" style="display: none;"></div>
+  <script src="config.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

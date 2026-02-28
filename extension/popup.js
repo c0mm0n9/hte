@@ -241,9 +241,16 @@ async function sendToAgent() {
     }
 
     setReply('Masking private information…');
-    const maskedText = globalThis.KIDS_SAFETY_PII && globalThis.KIDS_SAFETY_PII.maskPII
-      ? globalThis.KIDS_SAFETY_PII.maskPII(pageText).masked
-      : pageText;
+    const piiResult = globalThis.KIDS_SAFETY_PII && globalThis.KIDS_SAFETY_PII.maskPII
+      ? globalThis.KIDS_SAFETY_PII.maskPII(pageText)
+      : { masked: pageText, detectedTypes: [] };
+    const maskedText = piiResult.masked || pageText;
+    log('sendToAgent: masking applied', {
+      detectedTypes: piiResult.detectedTypes || [],
+      originalLength: pageText.length,
+      maskedLength: maskedText.length,
+      textChanged: maskedText !== pageText,
+    });
 
     const ollamaUrl = await new Promise(function (resolve) {
       chrome.storage.local.get([STORAGE_OLLAMA_URL], function (data) {
@@ -258,6 +265,14 @@ async function sendToAgent() {
       : maskedText.slice(0, 12000);
 
     const allMediaUrls = [...(content.imageUrls || []), ...(content.videoUrls || [])];
+    const imageCount = (content.imageUrls || []).length;
+    const videoCount = (content.videoUrls || []).length;
+    log('sendToAgent: media received', {
+      imageUrls: imageCount,
+      videoUrls: videoCount,
+      totalMediaUrls: allMediaUrls.length,
+      includedInPayload: Math.min(allMediaUrls.length, 20),
+    });
     let websiteContent = (extracted || '').trim();
     if (allMediaUrls.length > 0) {
       websiteContent += '\n\nMedia URLs on this page:\n' + allMediaUrls.slice(0, 20).join('\n');

@@ -3,7 +3,7 @@
   "name": "Kids Safety",
   "version": "0.1.0",
   "description": "Kids Safety: Agent mode (ask if content is real or AI-generated) and Control mode (blacklist + block).",
-  "permissions": ["storage", "activeTab", "tabs", "scripting"],
+  "permissions": ["storage", "activeTab", "tabs", "scripting", "webNavigation"],
   "host_permissions": ["<all_urls>", "http://localhost:8000/*", "http://localhost:8003/*", "http://localhost:11434/*", "http://127.0.0.1:7559/*", "https://*/*"],
   "action": {
     "default_popup": "popup.html",

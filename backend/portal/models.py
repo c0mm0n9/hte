@@ -62,17 +62,25 @@ class VisitedSite(models.Model):
     url = models.URLField(max_length=2048)
     title = models.CharField(max_length=512, blank=True)
     visited_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
-    # Detection results (from extension / Docker services)
+    # Three flags for AI detection (future); extension sends false until AI runs
+    has_harmful_content = models.BooleanField(default=False)
+    has_pii = models.BooleanField(default=False)
+    has_predators = models.BooleanField(default=False)
+
+    # Legacy detection fields (kept for backward compat; can sync from flags)
     ai_detected = models.BooleanField(default=False)
     fake_news_detected = models.BooleanField(default=False)
     harmful_content_detected = models.BooleanField(default=False)
 
-    # Optional details (e.g. confidence, type of AI content)
     notes = models.TextField(blank=True)
 
     class Meta:
         ordering = ['-visited_at']
+        constraints = [
+            models.UniqueConstraint(fields=['device', 'url'], name='portal_visitedsite_device_url_unique'),
+        ]
 
     def __str__(self):
         return f"{self.url} ({self.visited_at.date()})"

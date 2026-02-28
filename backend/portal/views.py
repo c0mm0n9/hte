@@ -43,6 +43,10 @@ def _serialize_visited_site(site):
         'url': site.url,
         'title': site.title or '',
         'visited_at': site.visited_at.isoformat(),
+        'updated_at': getattr(site, 'updated_at', site.visited_at).isoformat(),
+        'has_harmful_content': getattr(site, 'has_harmful_content', site.harmful_content_detected),
+        'has_pii': getattr(site, 'has_pii', False),
+        'has_predators': getattr(site, 'has_predators', False),
         'ai_detected': site.ai_detected,
         'fake_news_detected': site.fake_news_detected,
         'harmful_content_detected': site.harmful_content_detected,
@@ -197,6 +201,46 @@ def api_visited_sites_list(request, device_id=None):
 
 
 @csrf_exempt
+@require_GET
+def api_validate_key(request):
+    """Validate API key for extension. GET ?api_key=<key>. Returns { valid, mode } (mode: control | agentic)."""
+    api_key = (request.GET.get('api_key') or '').strip()
+    if not api_key:
+        return JsonResponse({'valid': False, 'error': 'api_key required'}, status=400)
+    key = api_key
+    uuid_part, sep, type_part = key.rpartition('-')
+    if not sep or not uuid_part or not type_part:
+        return JsonResponse({'valid': False, 'error': 'Invalid api_key format'}, status=400)
+    if type_part not in (Device.TYPE_CONTROL, Device.TYPE_AGENTIC):
+        return JsonResponse({'valid': False, 'error': 'Invalid api_key type'}, status=400)
+    try:
+        device = Device.objects.get(uuid=uuid_part, device_type=type_part)
+    except Device.DoesNotExist:
+        return JsonResponse({'valid': False, 'error': 'Device not found'}, status=404)
+    return JsonResponse({'valid': True, 'mode': device.device_type})
+
+
+@csrf_exempt
+@require_GET
+def api_blacklist(request):
+    """Return blacklist for extension. GET ?api_key=<key>. Returns { blacklist: [value, ...] }."""
+    api_key = (request.GET.get('api_key') or '').strip()
+    if not api_key:
+        return JsonResponse({'error': 'api_key required'}, status=400)
+    uuid_part, sep, type_part = api_key.rpartition('-')
+    if not sep or not uuid_part or not type_part:
+        return JsonResponse({'error': 'Invalid api_key format'}, status=400)
+    if type_part not in (Device.TYPE_CONTROL, Device.TYPE_AGENTIC):
+        return JsonResponse({'error': 'Invalid api_key type'}, status=400)
+    try:
+        device = Device.objects.get(uuid=uuid_part, device_type=type_part)
+    except Device.DoesNotExist:
+        return JsonResponse({'error': 'Device not found'}, status=404)
+    values = list(device.blacklist_entries.values_list('value', flat=True))
+    return JsonResponse({'blacklist': values})
+
+
+@csrf_exempt
 @require_POST
 def api_record_visit(request):
     """Record a site visit from the extension/API gateway.
@@ -237,16 +281,31 @@ def api_record_visit(request):
         except (Device.DoesNotExist, ValueError):
             return JsonResponse({'error': 'Device not found'}, status=404)
 
-    site = VisitedSite.objects.create(
+    title = (data.get('title') or '').strip()
+    has_harmful = bool(data.get('has_harmful_content', data.get('harmful_content_detected', False)))
+    has_pii = bool(data.get('has_pii', False))
+    has_predators = bool(data.get('has_predators', False))
+    notes = (data.get('notes') or '').strip()
+
+    from django.utils import timezone
+    now = timezone.now()
+    site, created = VisitedSite.objects.update_or_create(
         device=device,
         url=url,
-        title=data.get('title', ''),
-        ai_detected=bool(data.get('ai_detected', False)),
-        fake_news_detected=bool(data.get('fake_news_detected', False)),
-        harmful_content_detected=bool(data.get('harmful_content_detected', False)),
-        notes=data.get('notes', ''),
+        defaults={
+            'title': title,
+            'visited_at': now,
+            'updated_at': now,
+            'has_harmful_content': has_harmful,
+            'has_pii': has_pii,
+            'has_predators': has_predators,
+            'ai_detected': bool(data.get('ai_detected', False)),
+            'fake_news_detected': bool(data.get('fake_news_detected', False)),
+            'harmful_content_detected': has_harmful,
+            'notes': notes,
+        },
     )
-    return JsonResponse({'id': site.id, 'status': 'created'})
+    return JsonResponse({'id': site.id, 'status': 'created' if created else 'updated'})
 
 
 @require_POST

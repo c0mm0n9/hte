@@ -8,9 +8,13 @@ export type VisitedSite = {
   url: string;
   title: string;
   visited_at: string;
-  ai_detected: boolean;
-  fake_news_detected: boolean;
-  harmful_content_detected: boolean;
+  updated_at?: string;
+  has_harmful_content: boolean;
+  has_pii: boolean;
+  has_predators: boolean;
+  ai_detected?: boolean;
+  fake_news_detected?: boolean;
+  harmful_content_detected?: boolean;
   notes: string;
 };
 

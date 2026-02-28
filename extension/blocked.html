@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Blocked</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #f5f5f5;
+      padding: 1rem;
+    }
+    .card {
+      text-align: center;
+      padding: 2rem;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+      max-width: 360px;
+    }
+    h1 {
+      margin: 0 0 1rem;
+      font-size: 1.5rem;
+      color: #333;
+    }
+    p {
+      margin: 0 0 1.5rem;
+      color: #666;
+      font-size: 0.95rem;
+    }
+    a {
+      color: #1a73e8;
+      text-decoration: none;
+    }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>You shouldn't be here</h1>
+    <p>This site is not allowed. You will be redirected shortly.</p>
+    <p><a href="#" id="go">Go to safe page</a></p>
+  </div>
+  <script>
+    (function () {
+      var defaultUrl = 'https://qweasdzxcsssssss.com';
+      var params = new URLSearchParams(window.location.search);
+      var to = params.get('to') || defaultUrl;
+      var link = document.getElementById('go');
+      link.href = to;
+      setTimeout(function () {
+        window.location.href = to;
+      }, 3000);
+    })();
+  </script>
+</body>
+</html>

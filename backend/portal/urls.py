@@ -2,6 +2,8 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    path('validate/', views.api_validate_key),
+    path('blacklist/', views.api_blacklist),
     path('csrf/', views.api_csrf),
     path('login/', views.api_login),
     path('logout/', views.api_logout),
