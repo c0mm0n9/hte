@@ -1,7 +1,8 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
+from starlette.datastructures import UploadFile as StarletteUploadFile
 
 from .. import schemas
 from ..config import get_settings, Settings
@@ -30,39 +31,55 @@ async def agent_run(
     settings: Settings = Depends(get_settings),
 ) -> schemas.AgentRunResponse:
     """
-    Accepts either JSON body or multipart/form-data (with optional file upload).
+    Accepts either JSON body or multipart/form-data (with optional file uploads).
 
-    JSON body fields:  api_key, prompt, website_content
-    Form-data fields:  api_key, prompt, website_content, file (optional image/video)
+    JSON body fields:  api_key, prompt, website_content, website_url
+    Form-data fields:  api_key, prompt, website_content, website_url,
+                       and any key for file(s), e.g. uploaded_file, file (one or more image/video files).
+    In Postman: use Body -> form-data; add rows for api_key, prompt, etc., and set type to File for uploads.
+    Do not set Content-Type header manually—let Postman send multipart/form-data.
     """
     content_type = request.headers.get("content-type", "")
-    uploaded_file: Optional[tuple[bytes, str, str]] = None
+    uploaded_files: list[tuple[bytes, str, str]] = []
+    website_url: Optional[str] = None
 
     if "multipart/form-data" in content_type or "application/x-www-form-urlencoded" in content_type:
         form = await request.form()
-        api_key: str = form.get("api_key") or ""
-        prompt: Optional[str] = form.get("prompt") or None
-        website_content: Optional[str] = form.get("website_content") or None
+        api_key = (form.get("api_key") or "").strip().strip('"')
+        prompt_raw = form.get("prompt")
+        prompt = prompt_raw.strip().strip('"') if isinstance(prompt_raw, str) else None
+        website_content_raw = form.get("website_content")
+        website_content = website_content_raw.strip().strip('"') if isinstance(website_content_raw, str) else None
+        website_url_raw = form.get("website_url")
+        website_url = website_url_raw.strip().strip('"') if isinstance(website_url_raw, str) else None
 
-        file_field = form.get("file")
-        if isinstance(file_field, UploadFile):
-            file_bytes = await file_field.read()
-            if file_bytes:
-                uploaded_file = (
-                    file_bytes,
-                    file_field.filename or "upload",
-                    file_field.content_type or "application/octet-stream",
-                )
-                logger.info(
-                    "agent/run multipart: file=%s size=%s",
-                    file_field.filename,
-                    len(file_bytes),
-                )
+        # Collect all uploaded files from any form field (Postman/curl may use uploaded_file, file, etc.).
+        # Deduplicate keys first (dict.fromkeys preserves order), then use getlist() to retrieve
+        # ALL values per key — this correctly handles multiple files under the same field name.
+        # Check against StarletteUploadFile (parent class) because request.form() returns
+        # Starlette's UploadFile instances, not FastAPI's subclass.
+        for key in dict.fromkeys(form.keys()):
+            for field_value in form.getlist(key):
+                if isinstance(field_value, StarletteUploadFile):
+                    file_bytes = await field_value.read()
+                    if file_bytes:
+                        uploaded_files.append((
+                            file_bytes,
+                            field_value.filename or "upload",
+                            field_value.content_type or "application/octet-stream",
+                        ))
+                        logger.info(
+                            "agent/run multipart: key=%s file=%s size=%s",
+                            key,
+                            field_value.filename,
+                            len(file_bytes),
+                        )
     else:
         body = await request.json()
         api_key = body.get("api_key") or ""
         prompt = body.get("prompt") or None
         website_content = body.get("website_content") or None
+        website_url = body.get("website_url") or None
 
     if not api_key:
         raise HTTPException(
@@ -73,24 +90,27 @@ async def agent_run(
     validate_api_key(api_key, settings)
 
     logger.info(
-        "agent/run request: prompt=%s website_content_len=%s file=%s",
+        "agent/run request: prompt=%s website_content_len=%s website_url=%s files=%s",
         "yes" if prompt else "no",
         len(website_content or ""),
-        uploaded_file[1] if uploaded_file else None,
+        (website_url or "")[:80] if website_url else None,
+        [f[1] for f in uploaded_files] if uploaded_files else [],
     )
 
     result = await run_agent(
         prompt=prompt,
         website_content=website_content,
+        website_url=website_url,
         settings=settings,
-        uploaded_file=uploaded_file,
+        uploaded_files=uploaded_files,
     )
     logger.info(
-        "agent/run done: trust_score=%s fake_facts=%s fake_media=%s true_facts=%s true_media=%s",
+        "agent/run done: trust_score=%s fake_facts=%s fake_media=%s true_facts=%s true_media=%s info_graph_nodes=%s",
         result.trust_score,
         len(result.fake_facts),
         len(result.fake_media),
         len(result.true_facts),
         len(result.true_media),
+        len(result.info_graph.nodes) if result.info_graph else 0,
     )
     return result

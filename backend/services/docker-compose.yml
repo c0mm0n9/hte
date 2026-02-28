@@ -11,6 +11,9 @@ services:
     container_name: hte-media-checking
     env_file:
       - media_checking/.env
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
 
   fact_checking:
     build:
@@ -21,6 +24,9 @@ services:
     container_name: hte-fact-checking
     env_file:
       - fact_checking/.env
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
 
   ai_text_detector:
     build:
@@ -31,6 +37,22 @@ services:
     container_name: hte-ai-text-detector
     env_file:
       - ai_text_detector/.env
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+
+  info_graph:
+    build:
+      context: info_graph
+      dockerfile: Dockerfile
+    ports:
+      - "8004:8004"
+    container_name: hte-info-graph
+    env_file:
+      - info_graph/.env
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
 
   agent_gateway:
     build:
@@ -41,3 +63,6 @@ services:
     container_name: hte-agent-gateway
     env_file:
       - agent_gateway/.env
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4

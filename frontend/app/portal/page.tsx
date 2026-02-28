@@ -482,42 +482,114 @@ export default function PortalPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
+      <div className="flex min-h-[calc(100vh-4rem)]">
+        <aside className="w-64 shrink-0 border-r border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="sticky top-0 flex h-full flex-col gap-4 p-4">
+            <section className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-800/50">
+              <h3 className="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">Add a device</h3>
+              <form onSubmit={handleAddDevice} className="space-y-2">
+                {addDeviceError && (
+                  <p className="text-xs text-red-600 dark:text-red-400">{addDeviceError}</p>
+                )}
+                <div>
+                  <label htmlFor="new-device-label" className="block text-xs text-zinc-500 dark:text-zinc-400">
+                    Label
+                  </label>
+                  <input
+                    id="new-device-label"
+                    type="text"
+                    value={addLabel}
+                    onChange={(e) => setAddLabel(e.target.value)}
+                    placeholder="e.g. Laptop"
+                    className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="new-device-type" className="block text-xs text-zinc-500 dark:text-zinc-400">
+                    Type
+                  </label>
+                  <select
+                    id="new-device-type"
+                    value={addDeviceType}
+                    onChange={(e) => setAddDeviceType(e.target.value as 'control' | 'agentic')}
+                    className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+                  >
+                    <option value="agentic">Agentic</option>
+                    <option value="control">Control</option>
+                  </select>
+                </div>
+                {addDeviceType === 'control' && (
+                  <div>
+                    <label htmlFor="new-device-prompt" className="block text-xs text-zinc-500 dark:text-zinc-400">
+                      Control prompt
+                    </label>
+                    <textarea
+                      id="new-device-prompt"
+                      value={addAgenticPrompt}
+                      onChange={(e) => setAddAgenticPrompt(e.target.value)}
+                      placeholder="Rules or goals for this device"
+                      rows={3}
+                      className="mt-0.5 w-full rounded-md border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 resize-y"
+                    />
+                  </div>
+                )}
+                <button
+                  type="submit"
+                  disabled={addDeviceLoading || !addLabel.trim() || (addDeviceType === 'control' && !addAgenticPrompt.trim())}
+                  className="w-full rounded-md bg-emerald-600 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50 dark:bg-emerald-500 dark:hover:bg-emerald-600"
+                >
+                  {addDeviceLoading ? 'Adding…' : 'Add device'}
+                </button>
+              </form>
+            </section>
+            <div>
+              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                Devices
+              </h2>
+              {data?.devices && data.devices.length > 0 ? (
+                <ul className="space-y-1">
+                  {data.devices.map((device) => (
+                    <li key={device.id}>
+                      <div
+                        className={`flex overflow-hidden rounded-lg text-sm font-medium transition-colors ${
+                          selectedDeviceId === device.id
+                            ? 'bg-emerald-600 text-white dark:bg-emerald-500'
+                            : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setSelectedDeviceId(device.id)}
+                          className="min-w-0 flex-1 truncate px-3 py-2 text-left"
+                        >
+                          {device.label}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); handleRemoveDevice(device.id, device.label); }}
+                          disabled={deletingId === device.id}
+                          className={`shrink-0 border-l px-2 py-2 transition-colors ${
+                            selectedDeviceId === device.id
+                              ? 'border-emerald-500/50 hover:bg-red-100 hover:text-red-700 dark:border-emerald-400/30 dark:hover:bg-red-900/30 dark:hover:text-red-400'
+                              : 'border-zinc-200 dark:border-zinc-600 hover:bg-red-100 hover:text-red-700 dark:hover:bg-red-900/30 dark:hover:text-red-400'
+                          } disabled:opacity-50`}
+                          title="Remove device"
+                        >
+                          {deletingId === device.id ? '…' : '✕'}
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-zinc-500 dark:text-zinc-400">No devices yet.</p>
+              )}
+            </div>
+          </div>
+        </aside>
+      <main className="min-w-0 flex-1 px-4 py-6 sm:px-6">
         {data?.devices && data.devices.length > 0 ? (
           <>
-            <div className="mb-4 flex flex-wrap items-center gap-2">
-              {data.devices.map((device) => (
-                <div
-                  key={device.id}
-                  className={`inline-flex overflow-hidden rounded-lg text-sm font-medium transition-colors ${
-                    selectedDeviceId === device.id
-                      ? 'bg-emerald-600 text-white dark:bg-emerald-500'
-                      : 'bg-zinc-200 text-zinc-700 hover:bg-zinc-300 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600'
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => setSelectedDeviceId(device.id)}
-                    className="px-4 py-2 text-left"
-                  >
-                    {device.label}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); handleRemoveDevice(device.id, device.label); }}
-                    disabled={deletingId === device.id}
-                    className={`border-l px-2.5 py-2 transition-colors ${
-                      selectedDeviceId === device.id
-                        ? 'border-emerald-500/50 hover:bg-red-100 hover:text-red-700 dark:border-emerald-400/30 dark:hover:bg-red-900/30 dark:hover:text-red-400'
-                        : 'border-zinc-300 dark:border-zinc-600 hover:bg-red-100 hover:text-red-700 dark:hover:bg-red-900/30 dark:hover:text-red-400'
-                    } disabled:opacity-50`}
-                    title="Remove device"
-                  >
-                    {deletingId === device.id ? '…' : '✕'}
-                  </button>
-                </div>
-              ))}
-            </div>
             {selectedDevice && (
               <div className="mb-4 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-2 dark:border-zinc-700 dark:bg-zinc-800/50">
                 <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Device UUID</p>
@@ -557,69 +629,13 @@ export default function PortalPage() {
                 </p>
               </div>
             )}
+            {!selectedDevice ? (
+              <div className="rounded-lg border border-zinc-200 bg-white p-8 dark:border-zinc-700 dark:bg-zinc-900">
+                <p className="text-zinc-600 dark:text-zinc-400">Select a device from the sidebar.</p>
+              </div>
+            ) : (
+              <>
             <section className="mb-6 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
-              <h3 className="mb-3 text-sm font-medium text-zinc-700 dark:text-zinc-300">Add a device</h3>
-              <form onSubmit={handleAddDevice} className="space-y-3">
-                {addDeviceError && (
-                  <p className="text-sm text-red-600 dark:text-red-400">{addDeviceError}</p>
-                )}
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-                  <div className="flex min-w-0 flex-1 flex-col gap-3 sm:max-w-xs">
-                    <div>
-                      <label htmlFor="new-device-label" className="block text-xs text-zinc-500 dark:text-zinc-400">
-                        Label
-                      </label>
-                      <input
-                        id="new-device-label"
-                        type="text"
-                        value={addLabel}
-                        onChange={(e) => setAddLabel(e.target.value)}
-                        placeholder="e.g. Laptop, Tablet"
-                        className="mt-0.5 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="new-device-type" className="block text-xs text-zinc-500 dark:text-zinc-400">
-                        Type
-                      </label>
-                      <select
-                        id="new-device-type"
-                        value={addDeviceType}
-                        onChange={(e) => setAddDeviceType(e.target.value as 'control' | 'agentic')}
-                        className="mt-0.5 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
-                      >
-                        <option value="agentic">Agentic (predetermined settings)</option>
-                        <option value="control">Control (parent-defined prompt)</option>
-                      </select>
-                    </div>
-                  </div>
-                  {addDeviceType === 'control' && (
-                    <div className="min-w-0 flex-1">
-                      <label htmlFor="new-device-prompt" className="block text-xs text-zinc-500 dark:text-zinc-400">
-                        Control prompt
-                      </label>
-                      <textarea
-                        id="new-device-prompt"
-                        value={addAgenticPrompt}
-                        onChange={(e) => setAddAgenticPrompt(e.target.value)}
-                        placeholder="Describe rules or goals for this device (e.g. what content to allow or flag)"
-                        rows={5}
-                        className="mt-0.5 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 resize-y min-h-[100px]"
-                      />
-                    </div>
-                  )}
-                </div>
-                <button
-                  type="submit"
-                  disabled={addDeviceLoading || !addLabel.trim() || (addDeviceType === 'control' && !addAgenticPrompt.trim())}
-                  className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50 dark:bg-emerald-500 dark:hover:bg-emerald-600"
-                >
-                  {addDeviceLoading ? 'Adding…' : 'Add device'}
-                </button>
-              </form>
-            </section>
-            {selectedDevice && (
-              <section className="mb-6 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
                 <h2 className="mb-3 text-lg font-medium text-zinc-900 dark:text-zinc-100">
                   Whitelist, Blacklist & Visited list {selectedDevice.label}
                 </h2>
@@ -806,10 +822,9 @@ export default function PortalPage() {
                   </div>
                 </div>
               </section>
-            )}
             <section>
               <h2 className="mb-3 text-lg font-medium text-zinc-900 dark:text-zinc-100">
-                Visited list (full) {selectedDevice && `— ${selectedDevice.label}`}
+                Visited list (full) — {selectedDevice.label}
               </h2>
               <p className="mb-2 text-sm text-zinc-500 dark:text-zinc-400">
                 History with detection details. Click a row to view full details.
@@ -819,75 +834,18 @@ export default function PortalPage() {
             {selectedVisit && (
               <VisitDetailModal site={selectedVisit} onClose={() => setSelectedVisit(null)} />
             )}
+              </>
+            )}
           </>
         ) : (
           <div className="rounded-lg border border-zinc-200 bg-white p-8 dark:border-zinc-700 dark:bg-zinc-900">
-            <p className="mb-4 text-zinc-600 dark:text-zinc-400">
-              Add a device to start tracking browsing. Each device gets a unique UUID for the extension. Choose Agentic (predetermined settings) or Control (you set a prompt for this device).
+            <p className="text-zinc-600 dark:text-zinc-400">
+              Add your first device using the form in the sidebar. Each device gets a unique UUID and API key for the extension.
             </p>
-            <form onSubmit={handleAddDevice} className="space-y-3">
-              {addDeviceError && (
-                <p className="text-sm text-red-600 dark:text-red-400">{addDeviceError}</p>
-              )}
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-                <div className="flex min-w-0 flex-1 flex-col gap-3 sm:max-w-xs">
-                  <div>
-                    <label htmlFor="first-device-label" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                      Label
-                    </label>
-                    <input
-                      id="first-device-label"
-                      type="text"
-                      required
-                      value={addLabel}
-                      onChange={(e) => setAddLabel(e.target.value)}
-                      placeholder="e.g. Kids laptop"
-                      className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="first-device-type" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                      Type
-                    </label>
-                    <select
-                      id="first-device-type"
-                      value={addDeviceType}
-                      onChange={(e) => setAddDeviceType(e.target.value as 'control' | 'agentic')}
-                      className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
-                    >
-                      <option value="agentic">Agentic (predetermined settings)</option>
-                      <option value="control">Control (parent-defined prompt)</option>
-                    </select>
-                  </div>
-                </div>
-                {addDeviceType === 'control' && (
-                  <div className="min-w-0 flex-1">
-                    <label htmlFor="first-device-prompt" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                      Control prompt
-                    </label>
-                    <textarea
-                      id="first-device-prompt"
-                      required={addDeviceType === 'control'}
-                      value={addAgenticPrompt}
-                      onChange={(e) => setAddAgenticPrompt(e.target.value)}
-                      placeholder="Describe rules or goals for this device (e.g. what content to allow or flag)"
-                      rows={6}
-                      className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 resize-y min-h-[120px]"
-                    />
-                  </div>
-                )}
-              </div>
-              <button
-                type="submit"
-                disabled={addDeviceLoading || !addLabel.trim() || (addDeviceType === 'control' && !addAgenticPrompt.trim())}
-                className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50 dark:bg-emerald-500 dark:hover:bg-emerald-600"
-              >
-                {addDeviceLoading ? 'Adding…' : 'Add device'}
-              </button>
-            </form>
           </div>
         )}
       </main>
+      </div>
     </div>
   );
 }
