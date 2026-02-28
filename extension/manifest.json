@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "s-island",
+  "version": "0.1.0",
+  "description": "digital ecosystem to safely surf in the sea of information",
+  "permissions": ["storage", "activeTab", "tabs", "scripting", "webNavigation"],
+  "host_permissions": ["<all_urls>", "http://127.0.0.1:8000/*", "http://127.0.0.1:8003/*", "http://localhost:8000/*", "http://localhost:8003/*", "http://localhost:11434/*", "http://127.0.0.1:7559/*", "https://*/*"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "s-island"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["lib/keywords.js", "lib/pii.js", "lib/processor.js", "content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}

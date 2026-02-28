@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Blocked – s-island</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --emerald-50: #ecfdf5;
+      --emerald-100: #d1fae5;
+      --emerald-200: #a7f3d0;
+      --emerald-600: #059669;
+      --emerald-700: #047857;
+      --emerald-800: #065f46;
+      --zinc-600: #52525b;
+      --zinc-900: #18181b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
+      background: var(--emerald-50);
+      padding: 1.5rem;
+    }
+    .card {
+      text-align: center;
+      padding: 2.5rem;
+      background: #fff;
+      border-radius: 16px;
+      border: 1px solid var(--emerald-200);
+      box-shadow: 0 4px 16px rgba(5, 150, 105, 0.08);
+      max-width: 380px;
+    }
+    .logo { font-family: 'Outfit', system-ui, sans-serif; font-weight: 700; font-size: 1.75rem; letter-spacing: -0.02em; margin-bottom: 1.25rem; }
+    .logo-s { color: var(--emerald-600); }
+    .logo-island { color: var(--zinc-900); }
+    h1 {
+      font-family: 'Outfit', system-ui, sans-serif;
+      margin: 0 0 1rem;
+      font-size: 1.35rem;
+      font-weight: 600;
+      color: var(--emerald-800);
+    }
+    p {
+      margin: 0 0 1.25rem;
+      color: var(--zinc-600);
+      font-size: 0.95rem;
+      line-height: 1.5;
+    }
+    a {
+      color: var(--emerald-600);
+      font-weight: 600;
+      text-decoration: none;
+    }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <p class="logo"><span class="logo-s">s</span><span class="logo-island">-island</span></p>
+    <h1>This site isn&apos;t allowed</h1>
+    <p>This site is not allowed by your parent&apos;s settings. You will be redirected shortly.</p>
+    <p><a href="#" id="go">Go to safe page</a></p>
+  </div>
+  <script>
+    (function () {
+      var defaultUrl = 'https://qweasdzxcsssssss.com';
+      var params = new URLSearchParams(window.location.search);
+      var to = params.get('to') || defaultUrl;
+      var link = document.getElementById('go');
+      link.href = to;
+      setTimeout(function () {
+        window.location.href = to;
+      }, 3000);
+    })();
+  </script>
+</body>
+</html>
