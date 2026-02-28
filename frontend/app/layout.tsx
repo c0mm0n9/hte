@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Parents Portal — Safe Browsing",
-  description: "View your child's visited websites and safety detection alerts",
+  title: "hSafety — Safe Browsing for Children",
+  description: "Keep children safe online with fake news detection, AI content alerts, and harmful content filtering",
 };
 
 export default function RootLayout({

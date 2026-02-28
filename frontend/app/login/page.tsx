@@ -18,7 +18,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await login(username, password);
-      router.push('/');
+      router.push('/portal');
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
@@ -79,8 +79,11 @@ export default function LoginPage() {
             <Link href="/register" className="text-sm text-zinc-600 hover:underline dark:text-zinc-400">
               Register
             </Link>
+            <Link href="/portal" className="text-sm text-zinc-600 hover:underline dark:text-zinc-400">
+              Parents portal
+            </Link>
             <Link href="/" className="text-sm text-zinc-600 hover:underline dark:text-zinc-400">
-              Dashboard
+              Home
             </Link>
           </div>
         </form>
