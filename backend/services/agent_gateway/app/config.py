@@ -21,9 +21,13 @@ class Settings(BaseSettings):
     media_checking_url: str = "http://media_checking:8000"
     fact_checking_url: str = "http://fact_checking:8001"
     info_graph_url: Optional[str] = None
+    content_safety_url: Optional[str] = None
+    media_explanation_url: Optional[str] = None
 
     service_timeout_seconds: float = 30.0
     info_graph_timeout_seconds: float = 180.0
+    content_safety_timeout_seconds: float = 120.0
+    media_explanation_timeout_seconds: float = 600.0
 
     class Config:
         env_prefix = "AGENT_GATEWAY_"

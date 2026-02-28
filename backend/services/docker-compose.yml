@@ -54,6 +54,19 @@ services:
       - 8.8.8.8
       - 8.8.4.4
 
+  content_safety:
+    build:
+      context: content_safety
+      dockerfile: Dockerfile
+    ports:
+      - "8005:8005"
+    container_name: hte-content-safety
+    env_file:
+      - content_safety/.env
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+
   agent_gateway:
     build:
       context: agent_gateway
@@ -63,6 +76,19 @@ services:
     container_name: hte-agent-gateway
     env_file:
       - agent_gateway/.env
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+
+  media_explanation:
+    build:
+      context: media_explanation
+      dockerfile: Dockerfile
+    ports:
+      - "8006:8006"
+    container_name: hte-media-explanation
+    env_file:
+      - media_explanation/.env
     dns:
       - 8.8.8.8
       - 8.8.4.4

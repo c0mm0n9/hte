@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -85,6 +85,14 @@ class InfoGraph(BaseModel):
     related_articles: list[InfoGraphArticle] = Field(default_factory=list)
 
 
+class ContentSafetyScores(BaseModel):
+    """Risk scores from content_safety service (PIL, harmful, unwanted)."""
+
+    pil: float = Field(default=0.0, ge=0.0, le=1.0, description="Privacy Information Leakage risk 0-1")
+    harmful: float = Field(default=0.0, ge=0.0, le=1.0, description="Harmful content risk 0-1")
+    unwanted: float = Field(default=0.0, ge=0.0, le=1.0, description="Unwanted connections risk 0-1")
+
+
 class AgentRunResponse(BaseModel):
     """Structured result: trust_score, explanation, ai_text_score, fake_facts, fake_media, true_facts, true_media, info_graph."""
 
@@ -102,3 +110,17 @@ class AgentRunResponse(BaseModel):
     true_facts: list[TrueFact] = Field(default_factory=list, description="Facts with truth_value true from fact_checking")
     true_media: list[FakeMediaItem] = Field(default_factory=list, description="Media not flagged as fake (low scores)")
     info_graph: Optional[InfoGraph] = Field(default=None, description="Information graph built from source article + related articles")
+    content_safety: Optional[ContentSafetyScores] = Field(default=None, description="PIL / harmful / unwanted risk scores from content_safety check")
+
+
+class ExplainRequest(BaseModel):
+    """Request to generate an explanatory video, audio, or flashcards for a trust-score result."""
+
+    api_key: str = Field(..., description="API key for authentication")
+    response: AgentRunResponse = Field(..., description="The full response from /agent/run")
+    explanation_type: Literal["video", "audio", "flashcards"] = Field(
+        ..., description="Type of explanation to generate: video, audio, or flashcards"
+    )
+    user_prompt: Optional[str] = Field(
+        None, description="Optional personalization prompt, e.g. 'Explain for a high-school audience'"
+    )
