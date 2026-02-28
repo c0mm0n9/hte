@@ -15,10 +15,11 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = 60.0
     llm_model: str = "openai/gpt-oss-120b"
 
-    # Service endpoints (called via API)
-    ai_text_detector_url: Optional[str] = None  # e.g. http://localhost:8002 or http://ai_text_detector:8002
-    media_checking_url: Optional[str] = None   # e.g. http://localhost:8000
-    fact_checking_url: Optional[str] = None    # e.g. http://localhost:8001
+    # Service endpoints (called via API). Defaults use Docker Compose service names.
+    # For local dev (agent_gateway run on host), set in .env to http://localhost:8000 etc.
+    ai_text_detector_url: str = "http://ai_text_detector:8002"
+    media_checking_url: str = "http://media_checking:8000"
+    fact_checking_url: str = "http://fact_checking:8001"
     info_graph_url: Optional[str] = None       # future use; not called in this phase
 
     service_timeout_seconds: float = 30.0

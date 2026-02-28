@@ -19,6 +19,7 @@ class SaplingTextAIProvider(TextAIProvider):
             "key": settings.sapling_api_key,
             "text": text,
             "sent_scores": True,
+            "version": "20251027",  # pin detector version; avoid routing/502 issues
         }
 
         async with httpx.AsyncClient(timeout=settings.sapling_timeout_seconds) as client:

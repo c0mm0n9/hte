@@ -21,6 +21,13 @@ class FakeFact(BaseModel):
     explanation: str = ""
 
 
+class TrueFact(BaseModel):
+    """One fact that was checked and is true."""
+
+    truth_value: bool = True
+    explanation: str = ""
+
+
 class FakeMediaChunk(BaseModel):
     """Per-chunk media result (mirrors media_checking ChunkResult)."""
 
@@ -45,8 +52,18 @@ class FakeMediaItem(BaseModel):
 
 
 class AgentRunResponse(BaseModel):
-    """Structured result: trust_score, fake_facts, fake_media."""
+    """Structured result: trust_score, explanation, ai_text_score, fake_facts, fake_media, true_facts, true_media."""
 
     trust_score: int = Field(..., ge=0, le=100, description="Trust score 0-100 from LLM")
+    trust_score_explanation: str = Field(
+        default="",
+        description="Human-readable explanation of the trust score based on all checks performed",
+    )
+    ai_text_score: Optional[float] = Field(
+        default=None,
+        description="Overall AI-generated text likelihood (0.0–1.0) from ai_text_detector, or null if not run",
+    )
     fake_facts: list[FakeFact] = Field(default_factory=list, description="Facts with truth_value false from fact_checking")
-    fake_media: list[FakeMediaItem] = Field(default_factory=list, description="Media check results (chunks with scores)")
+    fake_media: list[FakeMediaItem] = Field(default_factory=list, description="Media flagged as AI-generated/deepfake (high scores)")
+    true_facts: list[TrueFact] = Field(default_factory=list, description="Facts with truth_value true from fact_checking")
+    true_media: list[FakeMediaItem] = Field(default_factory=list, description="Media not flagged as fake (low scores)")
