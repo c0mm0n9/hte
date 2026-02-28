@@ -131,8 +131,22 @@
 
   /** Panic overlay: full-page block until user presses "I understood". */
   let panicOverlayEl = null;
+  let panicAnalyzingTimeout = null;
+  var PANIC_ANALYZING_TIMEOUT_MS = 90000;
 
   function showPanicOverlay(status, payload) {
+    if (panicAnalyzingTimeout) {
+      clearTimeout(panicAnalyzingTimeout);
+      panicAnalyzingTimeout = null;
+    }
+    if (status === 'analyzing') {
+      panicAnalyzingTimeout = setTimeout(function () {
+        panicAnalyzingTimeout = null;
+        if (panicOverlayEl) {
+          showPanicOverlay('error', { message: 'This is taking longer than usual. You can close this and try again.' });
+        }
+      }, PANIC_ANALYZING_TIMEOUT_MS);
+    }
     if (!document.body) return;
     if (!panicOverlayEl) {
       panicOverlayEl = document.createElement('div');
@@ -183,6 +197,10 @@
 
   function updatePanicOverlay(payload) {
     if (!panicOverlayEl || !payload) return;
+    if (panicAnalyzingTimeout) {
+      clearTimeout(panicAnalyzingTimeout);
+      panicAnalyzingTimeout = null;
+    }
     showPanicOverlay(payload.status || 'result', payload);
   }
 

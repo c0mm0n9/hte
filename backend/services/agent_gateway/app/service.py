@@ -50,6 +50,27 @@ def _action_type(action: dict[str, Any]) -> str:
     return (action.get("action") or action.get("type") or "").strip().lower()
 
 
+def _parse_media_urls_from_content(website_content: str | None) -> list[str]:
+    """Extract media URLs from website_content when it contains 'Media URLs on this page:' block (extension format)."""
+    if not website_content or not website_content.strip():
+        return []
+    urls: list[str] = []
+    marker = "Media URLs on this page:"
+    idx = website_content.find(marker)
+    if idx == -1:
+        return []
+    rest = website_content[idx + len(marker) :].lstrip()
+    for line in rest.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("http://") or line.startswith("https://"):
+            urls.append(line)
+        else:
+            break
+    return urls
+
+
 async def get_actions_from_llm(
     prompt: str | None,
     website_content: str | None,
@@ -666,26 +687,38 @@ async def run_agent(
     settings: Settings,
     uploaded_files: list[tuple[bytes, str, str]] | None = None,
     website_url: str | None = None,
+    send_fact_check: bool = False,
+    send_media_check: bool = False,
 ) -> AgentRunResponse:
     """
     Full pipeline: get actions from LLM -> execute via APIs -> trust score LLM -> compile response.
 
     uploaded_files: optional list of (file_bytes, filename, content_type) for direct media upload checks.
     website_url: optional URL of the page being analyzed; passed to information_graph when the LLM does not provide it.
+    send_fact_check: when True, inject a fact_check action (facts extracted from website_content).
+    send_media_check: when True, inject ai_media_detection for each media URL parsed from website_content.
     """
     files = uploaded_files or []
     logger.info(
-        "run_agent started uploaded_files=%s website_url=%s",
+        "run_agent started uploaded_files=%s website_url=%s send_fact_check=%s send_media_check=%s",
         [f[1] for f in files] if files else [],
         (website_url or "")[:80] if website_url else None,
+        send_fact_check,
+        send_media_check,
     )
     actions = await get_actions_from_llm(
         prompt, website_content, settings, uploaded_file_names=[f[1] for f in files]
     )
-    injected_actions = [
+    injected_actions: list[dict[str, Any]] = [
         {"type": "ai_media_detection", "media_url": f"upload:{i}"}
         for i in range(len(files))
     ]
+    if send_fact_check:
+        injected_actions.append({"type": "fact_check", "facts": []})
+    if send_media_check:
+        media_urls = _parse_media_urls_from_content(website_content)
+        for url in media_urls:
+            injected_actions.append({"type": "ai_media_detection", "media_url": url})
     all_actions = injected_actions + actions
     # Execute all actions in parallel (independent API/LLM calls; no shared state)
     action_results = await asyncio.gather(

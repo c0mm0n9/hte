@@ -45,6 +45,11 @@ def create_app() -> FastAPI:
     @app.on_event("startup")
     async def startup() -> None:
         logger.info("Agent Gateway starting")
+        for route in app.routes:
+            if hasattr(route, "methods") and hasattr(route, "path"):
+                for method in route.methods:
+                    if method != "HEAD":
+                        logger.info("Route: %s %s", method, route.path)
 
     @app.get("/healthz")
     async def healthz() -> dict:

@@ -44,6 +44,8 @@ async def agent_run(
     uploaded_files: list[tuple[bytes, str, str]] = []
     website_url: Optional[str] = None
 
+    send_fact_check = False
+    send_media_check = False
     if "multipart/form-data" in content_type or "application/x-www-form-urlencoded" in content_type:
         form = await request.form()
         api_key = (form.get("api_key") or "").strip().strip('"')
@@ -53,6 +55,8 @@ async def agent_run(
         website_content = website_content_raw.strip().strip('"') if isinstance(website_content_raw, str) else None
         website_url_raw = form.get("website_url")
         website_url = website_url_raw.strip().strip('"') if isinstance(website_url_raw, str) else None
+        send_fact_check = str(form.get("send_fact_check") or "").strip().lower() in ("true", "1", "yes")
+        send_media_check = str(form.get("send_media_check") or "").strip().lower() in ("true", "1", "yes")
 
         # Collect all uploaded files from any form field (Postman/curl may use uploaded_file, file, etc.).
         # Deduplicate keys first (dict.fromkeys preserves order), then use getlist() to retrieve
@@ -81,6 +85,8 @@ async def agent_run(
         prompt = body.get("prompt") or None
         website_content = body.get("website_content") or None
         website_url = body.get("website_url") or None
+        send_fact_check = bool(body.get("send_fact_check"))
+        send_media_check = bool(body.get("send_media_check"))
 
     if not api_key:
         raise HTTPException(
@@ -104,6 +110,8 @@ async def agent_run(
         website_url=website_url,
         settings=settings,
         uploaded_files=uploaded_files,
+        send_fact_check=send_fact_check,
+        send_media_check=send_media_check,
     )
     logger.info(
         "agent/run done: trust_score=%s fake_facts=%s fake_media=%s true_facts=%s true_media=%s info_graph_nodes=%s content_safety=%s",

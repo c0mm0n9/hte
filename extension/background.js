@@ -153,7 +153,8 @@ function runPanicFlow(tabId, apiKey) {
         sendOverlay({ type: 'UPDATE_PANIC_OVERLAY', status: 'error', message: data.error || 'Invalid API key.' });
         return;
       }
-      var prompt = (data.mode === 'control' && data.prompt) ? data.prompt : 'Analyze this content and explain in simple terms whether it is safe for a child.';
+      var prompt = (data.prompt && data.prompt.trim()) ? data.prompt.trim() : 'Analyze this content and explain in simple terms whether it is safe for a child.';
+      var isControl = data.mode === 'control';
       return chrome.tabs.sendMessage(tabId, { type: 'GET_PAGE_CONTENT' })
         .then(function (content) {
           var text = (content && content.text) ? content.text : '';
@@ -162,26 +163,42 @@ function runPanicFlow(tabId, apiKey) {
           if (mediaUrls.length > 0) {
             websiteContent += '\n\nMedia URLs on this page:\n' + mediaUrls.slice(0, 20).join('\n');
           }
+          var body = {
+            api_key: apiKey,
+            prompt: prompt,
+            website_content: websiteContent.slice(0, 50000),
+          };
+          if (isControl) {
+            body.send_fact_check = true;
+            body.send_media_check = true;
+          }
           return fetch(agentRunUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              api_key: apiKey,
-              prompt: prompt,
-              website_content: websiteContent.slice(0, 50000),
-            }),
+            body: JSON.stringify(body),
           });
         })
         .then(function (res) {
           if (!res.ok) {
-            return res.text().then(function (t) {
+            res.text().then(function () {
               sendOverlay({ type: 'UPDATE_PANIC_OVERLAY', status: 'error', message: 'Could not get an answer. Try again.' });
             });
+            return;
           }
-          return res.json().then(function (data) {
-            var explanation = (data.trust_score_explanation || '').trim() || ('Trust score: ' + (data.trust_score != null ? data.trust_score : '?') + ' / 100.');
-            sendOverlay({ type: 'UPDATE_PANIC_OVERLAY', status: 'result', explanation: explanation, trust_score: data.trust_score });
-          });
+          res.json()
+            .then(function (data) {
+              var explanation = (data && data.trust_score_explanation != null) ? String(data.trust_score_explanation).trim() : '';
+              if (!explanation && data && data.trust_score != null) {
+                explanation = 'Trust score: ' + data.trust_score + ' / 100.';
+              }
+              if (!explanation) explanation = 'Analysis complete.';
+              log('panic result received, sending overlay update to tab', tabId);
+              sendOverlay({ type: 'UPDATE_PANIC_OVERLAY', status: 'result', explanation: explanation, trust_score: data && data.trust_score });
+            })
+            .catch(function (err) {
+              log('panic res.json error', err && err.message);
+              sendOverlay({ type: 'UPDATE_PANIC_OVERLAY', status: 'error', message: 'Invalid response from gateway. Try again.' });
+            });
         });
     })
     .catch(function (e) {
