@@ -26,10 +26,7 @@ The extension sends the key in the **X-API-Key** header to the gateway. The gate
 - **Keyword detection**: Scans page text for safety categories (violence, bullying, adult, self-harm). Only category names and counts are sent, never raw phrases.
 - **PII detection & redaction**: Detects email, phone, SSN, credit card, address-like patterns. PII is never sent; it is stripped locally.
 - **Video hint**: Sets `video.has_video` when the page contains a `<video>` element (for future deepfake/media checks).
-- **Reporting**: Batched POST to `GATEWAY_BASE_URL + REPORT_ENDPOINT` with payloads like:
-  ```json
-  { "reports": [ { "ts", "url", "domain", "keywords", "audio", "video" } ] }
-  ```
+- **Reporting**: Page signals (PAGE_SIGNAL) are still collected by the content script and sent to the background; **posting to the gateway report endpoint is disabled** (the `/v1/safety/report` endpoint was removed from use because it returns 404).
 
 ## Structure
 
@@ -37,8 +34,8 @@ The extension sends the key in the **X-API-Key** header to the gateway. The gate
 extension/
 ├── manifest.json       # Manifest V3, action with popup
 ├── popup.html / popup.js   # Agent mode: chat UI, asks gateway /v1/agent/chat
-├── config.js           # Gateway URL (background / report endpoint)
-├── background.js       # Service worker: queues reports (optional)
+├── config.js           # Gateway base URL
+├── background.js       # Service worker (handles PAGE_SIGNAL; report posting disabled)
 ├── content.js          # Content script: page signals (optional)
 ├── lib/
 │   ├── keywords.js     # Category lists + detectKeywords()
@@ -61,18 +58,7 @@ Optional: add icons under `icons/` (e.g. `icon-48.png`, `icon-96.png`) and set `
 
 Follow **Load in Chrome** above. The extension will appear in your toolbar and run on all sites.
 
-### 2. (Optional) Run the test server to see reports
-
-The extension POSTs to `http://localhost:8000/v1/safety/report`. If nothing is listening, the request fails silently. To see the payload:
-
-```bash
-cd extension
-node test-server.js
-```
-
-Leave this running, then browse in Chrome. After ~2 seconds on a page, the terminal will print the report JSON (url, domain, keywords, audio, video).
-
-### 3. Verify keyword detection
+### 2. Verify keyword detection
 
 Open any page that contains one of the sample keywords (e.g. the word “weapon” or “violence”). With the test server running, you should see `matchedCategories` and `countByCategory` in the logged report. Or use a local HTML file:
 
@@ -81,57 +67,36 @@ Open any page that contains one of the sample keywords (e.g. the word “weapon�
 <body><p>This page has the word weapon and violence.</p></body>
 ```
 
-Open it in Chrome (`file:///.../test-page.html`). After a couple of seconds, the report should show `"violence"` in `keywords.matchedCategories`.
+Open it in Chrome (`file:///.../test-page.html`). Keyword detection still runs; report posting to the gateway is disabled.
 
-### 4. Inspect the extension
+### 3. Inspect the extension
 
-- **Background (service worker)**: `chrome://extensions/` → find “Kids Safety” → click **Service worker** (or “Inspect views: service worker”) to open DevTools. Check **Console** for errors and **Network** for the POST to `safety/report`.
-- **Content script**: On any page, open DevTools (F12) → **Console**. The content script runs in the page context; you can test the processor manually, e.g.  
-  `KIDS_SAFETY_PROCESSOR.processPageText('some text with weapon')`
+- **Background (service worker)**: `chrome://extensions/` → find “Kids Safety” → click **Service worker** to open DevTools. Check **Console** for `[Kids Safety BG]` logs.
+- **Content script**: On any page, open DevTools (F12) → **Console**. Look for `[Kids Safety Content]`; you can also run `KIDS_SAFETY_PROCESSOR.processPageText('some text with weapon')`.
+- **Popup**: Right‑click the extension icon → **Inspect popup**; Console shows `[Kids Safety Popup]` logs.
+
+### 4. Debugging (why the extension isn't working)
+
+Logs use the prefix **`[Kids Safety Popup]`**, **`[Kids Safety Content]`**, **`[Kids Safety BG]`**. Set `DEBUG = true` in popup.js, content.js, and background.js (default on).
+
+- **"Could not read page text"**: In **Popup console** see which step failed (sendMessage = content script not in tab → reload page; executeScript failed = restricted URL). In **Page console** check for `getPageText: … text length=0` if content script is present.
+- **Gateway errors**: Popup console shows `sendToAgent: gateway error` with status and body.
+- **Background**: Service worker console shows `PAGE_SIGNAL received` (report posting is disabled).
 
 ### 5. Quick checklist
 
 | Step | What to do |
 |------|------------|
 | Load | Load unpacked from `extension` folder |
-| Server | Run `node test-server.js` in `extension` |
-| Browse | Open a normal or test page in Chrome |
-| Wait | ~2 s (debounce) |
-| See report | Check test-server terminal for JSON |
-| Debug | Extension → Service worker → Network / Console |
+| Browse | Open a normal or test page (http/https); reload after installing/updating |
+| Analyze | Click extension icon → Agent → Analyze page |
+| Debug | Inspect popup + page DevTools Console; filter by "Kids Safety" |
 
 ## Config
 
-Edit `config.js` (or override in background):
+Edit `config.js`:
 
-- **GATEWAY_BASE_URL**: FastAPI gateway base (default `http://localhost:8000`).
-- **REPORT_ENDPOINT**: Path for reports (default `/v1/safety/report`).
-- **SEND_DEBOUNCE_MS**: Delay before flushing the report queue (default 2000).
-- **MAX_PAYLOAD_SIZE**: Max JSON body size in bytes (default 64KB).
-
-## Gateway contract (for FastAPI)
-
-The extension POSTs to the report endpoint with:
-
-```json
-{
-  "reports": [
-    {
-      "ts": "2025-02-28T12:00:00.000Z",
-      "url": "https://example.com/page",
-      "domain": "example.com",
-      "keywords": {
-        "matchedCategories": ["violence"],
-        "countByCategory": { "violence": 2 }
-      },
-      "audio": { "has_audio": false },
-      "video": { "has_video": true }
-    }
-  ]
-}
-```
-
-No PII is included. The gateway can respond with `200` and optionally a body (e.g. `{ "malicious": false }` or block/alert instructions); the extension does not currently act on the response.
+- **GATEWAY_BASE_URL**: FastAPI gateway base (default `http://localhost:8000`). Used for `/v1/agent/chat` and `/v1/agent/analyze` only; report endpoint posting is disabled.
 
 ## Extending
 
