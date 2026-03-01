@@ -720,7 +720,7 @@ def main() -> None:
         if service_name == "portal":
             env = dict(portal_env)
         elif service_name == "frontend":
-            env = {}  # Frontend uses build-time NEXT_PUBLIC_API_URL only
+            env = {}  # Frontend uses same-origin proxy; DJANGO_API_URL set in task env_overrides
         else:
             env = get_env_for_service(service_name, per_service, global_env)
         # Override with AWS endpoints
@@ -738,16 +738,15 @@ def main() -> None:
     # ECR login
     ecr_login(args.region, account_id)
 
-    # Build and push (optional); frontend needs Portal + Frontend URLs at build time
-    portal_url_build = outputs.get("PortalALBUrl", "http://localhost:8000")
+    # Build and push (optional); frontend uses same-origin /api/portal/* proxy (no NEXT_PUBLIC_API_URL so session cookies work)
     frontend_url_build = outputs.get("FrontendALBUrl", "http://localhost:3000")
     image_uris: Dict[str, str] = {}
     for service_name, (port, ecr_suffix, context) in SERVICES.items():
         build_args = None
         if service_name == "frontend":
             build_args = {
-                "NEXT_PUBLIC_API_URL": portal_url_build,
                 "NEXT_PUBLIC_APP_URL": frontend_url_build,
+                "NEXT_PUBLIC_API_URL": "",  # empty = same-origin /api/portal/* proxy so session cookies work
             }
         uri = build_and_push(
             REPO_ROOT,
@@ -800,8 +799,19 @@ def main() -> None:
             env_overrides = {"POSTGRES_HOST": endpoint_mapping.get("POSTGRES_HOST", "")}
             if frontend_url_for_cors:
                 env_overrides["CORS_EXTRA_ORIGINS"] = frontend_url_for_cors
+                # Django CSRF origin check: trust both http and https for the frontend ALB
+                origins = [frontend_url_for_cors]
+                if frontend_url_for_cors.startswith("http://"):
+                    origins.append("https://" + frontend_url_for_cors[7:])
+                elif frontend_url_for_cors.startswith("https://"):
+                    origins.append("http://" + frontend_url_for_cors[8:])
+                env_overrides["CSRF_TRUSTED_ORIGINS"] = ",".join(origins)
         elif service_name == "agent_gateway":
             env_overrides = {k: v for k, v in endpoint_mapping.items() if k.startswith("AGENT_GATEWAY_")}
+        elif service_name == "frontend":
+            # Next.js proxy (app/api/portal/[...path]) needs Django URL at runtime; browser stays same-origin
+            portal_url = outputs.get("PortalALBUrl", "http://localhost:8000")
+            env_overrides = {"DJANGO_API_URL": portal_url}
         else:
             env_overrides = {}
         task_def = register_task_definition(
