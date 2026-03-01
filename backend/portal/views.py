@@ -8,6 +8,18 @@ from django.contrib.auth.models import User
 from .models import Device, DeviceWhitelist, DeviceBlacklist, VisitedSite
 
 
+@require_GET
+def api_health(request):
+    """Health check for ALB; GET /api/portal/ returns 200."""
+    return JsonResponse({"status": "ok"})
+
+
+@require_GET
+def health(request):
+    """Root health check; GET /health returns 200 (for ALB or other callers)."""
+    return JsonResponse({"status": "ok"})
+
+
 def _parse_api_key(key):
     """Parse api_key string into (uuid_str, device_type) or (None, None). Accepts -agent as -agentic."""
     if not key or not isinstance(key, str):
@@ -336,9 +348,10 @@ def api_record_visit(request):
     return JsonResponse({'id': site.id, 'status': 'created' if created else 'updated'})
 
 
+@csrf_exempt
 @require_POST
 def api_login(request):
-    """Log in a parent. Body: username, password. Requires CSRF token in X-CSRFToken header."""
+    """Log in a parent. Body: username, password. CSRF exempt so cross-origin (e.g. frontend on ALB) works."""
     try:
         data = json.loads(request.body)
     except json.JSONDecodeError:
@@ -354,9 +367,10 @@ def api_login(request):
     return JsonResponse({'user': {'id': user.id, 'username': user.username}})
 
 
+@csrf_exempt
 @require_POST
 def api_logout(request):
-    """Log out the current user. Requires CSRF token in X-CSRFToken header."""
+    """Log out the current user. CSRF exempt for cross-origin portal."""
     logout(request)
     return JsonResponse({'status': 'ok'})
 

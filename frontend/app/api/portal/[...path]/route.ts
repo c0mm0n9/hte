@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-// Use 127.0.0.1 so Django is reachable when localhost resolves to IPv6 (::1)
-const DJANGO_API = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+// Server-side only: where to proxy portal API. Use DJANGO_API_URL so the client can stay same-origin (no NEXT_PUBLIC_API_URL).
+// Then browser requests go to /api/portal/* on the frontend and cookies work over HTTP.
+const DJANGO_API = process.env.DJANGO_API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
 
 function getCookieHeader(request: NextRequest): string {
   const cookie = request.headers.get('cookie');

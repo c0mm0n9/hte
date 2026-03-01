@@ -31,7 +31,7 @@ SECRET_KEY = 'django-insecure-ngdm43!qlc07jx#00o9jc&vpp*6wv-ar=4+)r2&krxe4m=1+w1
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1']
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', '*']
 
 
 # Application definition
@@ -47,11 +47,8 @@ INSTALLED_APPS = [
     'portal',
 ]
 
-# CORS for frontend (parents portal); credentials needed for session auth
-CORS_ALLOWED_ORIGINS = [
-    'http://localhost:3000',
-    'http://127.0.0.1:3000',
-]
+# CORS for portal API: allow all origins (e.g. frontend on ALB or any domain)
+CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
 
 MIDDLEWARE = [
@@ -156,8 +153,22 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# Session cookie: default Lax so login works when frontend proxies API (same-origin). For cross-origin (NEXT_PUBLIC_API_URL set), use None + Secure and HTTPS.
-SESSION_COOKIE_SAMESITE = 'Lax'
-SESSION_COOKIE_SECURE = False
-CSRF_COOKIE_SAMESITE = 'Lax'
-CSRF_COOKIE_SECURE = False
+# CSRF: trust these origins for Referer/Origin check (Django has no wildcard; add via env for more).
+# Portal login/logout are also @csrf_exempt so they work from any origin.
+_trusted = [
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://hte-frontend-alb-452710823.ap-southeast-1.elb.amazonaws.com',
+    'https://hte-frontend-alb-452710823.ap-southeast-1.elb.amazonaws.com',
+]
+_extra = (os.environ.get('CSRF_TRUSTED_ORIGINS') or '').strip()
+if _extra:
+    _trusted.extend(o.strip() for o in _extra.split(',') if o.strip())
+CSRF_TRUSTED_ORIGINS = _trusted
+
+# Session/CSRF cookies: use Lax + non-Secure so cookies work over HTTP when frontend uses same-origin proxy
+# (do not set NEXT_PUBLIC_API_URL; use DJANGO_API_URL on the Next.js server so browser hits /api/portal/* on frontend)
+SESSION_COOKIE_SAMESITE = os.environ.get('SESSION_COOKIE_SAMESITE', 'Lax').strip() or 'Lax'
+SESSION_COOKIE_SECURE = os.environ.get('SESSION_COOKIE_SECURE', 'False').strip().lower() in ('1', 'true', 'yes')
+CSRF_COOKIE_SAMESITE = os.environ.get('CSRF_COOKIE_SAMESITE', 'Lax').strip() or 'Lax'
+CSRF_COOKIE_SECURE = os.environ.get('CSRF_COOKIE_SECURE', 'False').strip().lower() in ('1', 'true', 'yes')

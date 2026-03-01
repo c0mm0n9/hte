@@ -1,0 +1,2 @@
+# For AWS deployment script (pip install -r scripts/requirements.txt)
+boto3>=1.28,<2

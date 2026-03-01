@@ -48,7 +48,7 @@ export default function LoginPage() {
 
       <main className="mx-auto flex max-w-md flex-col items-center justify-center px-4 py-16">
         <div className="animate-scale-in w-full rounded-2xl border border-emerald-200/80 bg-white p-8 shadow-lg shadow-emerald-900/5 dark:border-emerald-800/60 dark:bg-emerald-950/40 dark:shadow-none">
-          <h1 className="animate-fade-in-up font-title text-xl font-semibold text-emerald-800 dark:text-emerald-100">Parent login</h1>
+          <h1 className="animate-fade-in-up font-title text-xl font-semibold text-emerald-800 dark:text-emerald-100">Admin login</h1>
           <p className="animate-fade-in-up animate-delay-100 mt-1 text-sm text-emerald-700/80 dark:text-emerald-200/80">
             Sign in to view device activity and detection alerts.
           </p>
