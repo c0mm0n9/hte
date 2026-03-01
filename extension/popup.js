@@ -1,9 +1,13 @@
-const GATEWAY_BASE_URL = (typeof globalThis !== 'undefined' && globalThis.KIDS_SAFETY_CONFIG?.GATEWAY_BASE_URL) || 'http://127.0.0.1:8003';
-const AGENT_RUN_URL = GATEWAY_BASE_URL.replace(/\/$/, '') + '/v1/agent/run';
+const DEFAULT_GATEWAY_BASE = (typeof globalThis !== 'undefined' && globalThis.KIDS_SAFETY_CONFIG?.GATEWAY_BASE_URL) || 'http://127.0.0.1:8003';
 const STORAGE_KEY = 'kidsSafetyApiKey';
 const STORAGE_MODE = 'kidsSafetyMode';
-const STORAGE_SEND_FACT = 'kidsSafetySendFactCheck';
-const STORAGE_SEND_MEDIA = 'kidsSafetySendMediaCheck';
+const STORAGE_GATEWAY_BASE_URL = 'kidsSafetyGatewayBaseUrl';
+
+async function getGatewayBaseUrl() {
+  const data = await new Promise((r) => chrome.storage.local.get([STORAGE_GATEWAY_BASE_URL], (d) => r(d)));
+  const base = (data[STORAGE_GATEWAY_BASE_URL] || DEFAULT_GATEWAY_BASE).toString().trim();
+  return base.replace(/\/$/, '');
+}
 
 const DEBUG = true;
 function log(...args) {
@@ -16,10 +20,15 @@ const agentPanel = document.getElementById('agent-panel');
 const openOptionsLink = document.getElementById('open-options');
 const pageUrlEl = document.getElementById('page-url');
 const messageEl = document.getElementById('message');
-const sendFactCheckEl = document.getElementById('send-fact-check');
-const sendMediaCheckEl = document.getElementById('send-media-check');
 const sendBtn = document.getElementById('send-btn');
 const replyEl = document.getElementById('reply');
+const explainActionsEl = document.getElementById('explain-actions');
+const explainOutputEl = document.getElementById('explain-output');
+const explainFlashcardsBtn = document.getElementById('explain-flashcards');
+const explainAudioBtn = document.getElementById('explain-audio');
+const explainVideoBtn = document.getElementById('explain-video');
+
+let lastAgentResponse = null;
 
 function showPanel(panel) {
   setupPanel.classList.remove('active');
@@ -41,11 +50,11 @@ async function getCurrentTabUrl() {
   return tab?.url || '';
 }
 
-function setReply(text, isError = false) {
+function setReply(text, isError = false, isHtml = false) {
   const raw = text || 'No reply.';
   replyEl.classList.toggle('empty', !text);
   replyEl.classList.toggle('error', isError);
-  replyEl.innerHTML = raw
+  replyEl.innerHTML = isHtml ? raw : raw
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/\n/g, '<br>');
 }
@@ -93,11 +102,53 @@ function getPageTextAndMediaUrls() {
   return { text, mediaUrls, imageUrls, videoUrls };
 }
 
-async function getPageContentWithMedia() {
-  // #region agent log
+/** Injectable: collect only image/video URLs (no page text). Used when only media check is enabled. */
+function getMediaUrlsOnlyInPage() {
+  const imageUrls = [];
+  const videoUrls = [];
+  try {
+    document.querySelectorAll('img[src]').forEach(function (img) {
+      try {
+        const u = new URL(img.src, document.baseURI);
+        if (u.protocol === 'http:' || u.protocol === 'https:') imageUrls.push(u.href);
+      } catch (_) {}
+    });
+    document.querySelectorAll('video source[src], video[src]').forEach(function (v) {
+      const src = v.src || v.getAttribute('src');
+      if (!src) return;
+      try {
+        const u = new URL(src, document.baseURI);
+        if (u.protocol === 'http:' || u.protocol === 'https:') videoUrls.push(u.href);
+      } catch (_) {}
+    });
+  } catch (_) {}
+  return { imageUrls: imageUrls.slice(0, 20), videoUrls: videoUrls.slice(0, 5) };
+}
+
+/** Get only media URLs and page URL (no page text). Use when only media check is enabled. */
+async function getPageMediaOnly() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  fetch('http://127.0.0.1:7559/ingest/50217504-a361-4152-a44d-43637131f823',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1d87d0'},body:JSON.stringify({sessionId:'1d87d0',runId:'ext',hypothesisId:'H1',location:'popup.js:getPageContentWithMedia:entry',message:'Get content: tab query result',data:{hasTab:!!tab,tabId:tab?.id,tabUrl:(tab?.url||'').slice(0,80)},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
+  if (!tab?.id) return { imageUrls: [], videoUrls: [], website_url: '' };
+  try {
+    const result = await chrome.tabs.sendMessage(tab.id, { type: 'GET_MEDIA_URLS_ONLY' });
+    if (result && (Array.isArray(result.imageUrls) || Array.isArray(result.videoUrls))) {
+      return {
+        imageUrls: result.imageUrls || [],
+        videoUrls: result.videoUrls || [],
+        website_url: result.website_url || tab.url || '',
+      };
+    }
+  } catch (_) {}
+  try {
+    const inj = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: getMediaUrlsOnlyInPage });
+    const r = inj && inj[0] && inj[0].result;
+    if (r) return { imageUrls: r.imageUrls || [], videoUrls: r.videoUrls || [], website_url: tab.url || '' };
+  } catch (_) {}
+  return { imageUrls: [], videoUrls: [], website_url: tab.url || '' };
+}
+
+async function getPageContentWithMedia() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) {
     log('getPageContentWithMedia: no active tab');
     return { text: '', mediaUrls: [], imageBlobs: [], videoBlobs: [], videoUrls: [], imageUrls: [] };
@@ -106,10 +157,9 @@ async function getPageContentWithMedia() {
 
   try {
     const result = await chrome.tabs.sendMessage(tab.id, { type: 'GET_PAGE_CONTENT_WITH_MEDIA' });
-    if (result && (result.text || '').trim().length > 0) {
-      // #region agent log
-      fetch('http://127.0.0.1:7559/ingest/50217504-a361-4152-a44d-43637131f823',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1d87d0'},body:JSON.stringify({sessionId:'1d87d0',runId:'ext',hypothesisId:'H2',location:'popup.js:getPageContentWithMedia:content_script_ok',message:'Got data from content script',data:{source:'content_script',textLength:(result.text||'').length},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
+    const hasText = result && (result.text || '').trim().length > 0;
+    const hasMedia = result && ((result.imageUrls && result.imageUrls.length > 0) || (result.videoUrls && result.videoUrls.length > 0));
+    if (result && (hasText || hasMedia)) {
       log('getPageContentWithMedia: content script GET_PAGE_CONTENT_WITH_MEDIA ok, text length=', (result.text || '').length);
       return result;
     }
@@ -121,17 +171,23 @@ async function getPageContentWithMedia() {
   try {
     const fallback = await chrome.tabs.sendMessage(tab.id, { type: 'GET_PAGE_CONTENT' });
     if (fallback && (fallback.text || '').trim().length > 0) {
-      // #region agent log
-      fetch('http://127.0.0.1:7559/ingest/50217504-a361-4152-a44d-43637131f823',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1d87d0'},body:JSON.stringify({sessionId:'1d87d0',runId:'ext',hypothesisId:'H2',location:'popup.js:getPageContentWithMedia:fallback_ok',message:'Got data from fallback GET_PAGE_CONTENT',data:{source:'fallback',textLength:(fallback.text||'').length},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       log('getPageContentWithMedia: fallback GET_PAGE_CONTENT ok, text length=', (fallback.text || '').length);
+      var urls = fallback.mediaUrls || [];
+      var imgUrls = [];
+      var vidUrls = [];
+      urls.forEach(function (u) {
+        var lower = (u || '').toLowerCase();
+        if (/\.(mp4|webm|ogg|mov|avi|mkv)(\?|$)/.test(lower) || lower.includes('video')) vidUrls.push(u);
+        else imgUrls.push(u);
+      });
       return {
         text: fallback.text,
-        mediaUrls: fallback.mediaUrls || [],
+        mediaUrls: urls,
         imageBlobs: [],
         videoBlobs: [],
-        videoUrls: [],
-        imageUrls: [],
+        imageUrls: imgUrls.slice(0, 20),
+        videoUrls: vidUrls.slice(0, 5),
+        website_url: tab.url || '',
       };
     }
     log('getPageContentWithMedia: fallback returned empty text');
@@ -146,9 +202,6 @@ async function getPageContentWithMedia() {
     });
     const r = inj && inj[0] && inj[0].result;
     if (r && (r.text || '').trim().length > 0) {
-      // #region agent log
-      fetch('http://127.0.0.1:7559/ingest/50217504-a361-4152-a44d-43637131f823',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1d87d0'},body:JSON.stringify({sessionId:'1d87d0',runId:'ext',hypothesisId:'H2',location:'popup.js:getPageContentWithMedia:executeScript_ok',message:'Got data from executeScript',data:{source:'executeScript',textLength:(r.text||'').length},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       log('getPageContentWithMedia: executeScript ok, text length=', (r.text || '').length);
       return {
         text: r.text,
@@ -157,6 +210,7 @@ async function getPageContentWithMedia() {
         videoBlobs: [],
         videoUrls: r.videoUrls || [],
         imageUrls: r.imageUrls || [],
+        website_url: tab.url || '',
       };
     }
     log('getPageContentWithMedia: executeScript returned empty or no result', r ? 'result keys=' + Object.keys(r || {}).join(',') : 'no result');
@@ -164,11 +218,8 @@ async function getPageContentWithMedia() {
     log('getPageContentWithMedia: executeScript failed', e?.message || e);
   }
 
-  // #region agent log
-  fetch('http://127.0.0.1:7559/ingest/50217504-a361-4152-a44d-43637131f823',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1d87d0'},body:JSON.stringify({sessionId:'1d87d0',runId:'ext',hypothesisId:'H2',location:'popup.js:getPageContentWithMedia:all_failed',message:'All content sources failed',data:{source:'none',textLength:0},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   log('getPageContentWithMedia: all methods failed, returning empty');
-  return { text: '', mediaUrls: [], imageBlobs: [], videoBlobs: [], videoUrls: [], imageUrls: [] };
+  return { text: '', mediaUrls: [], imageBlobs: [], videoBlobs: [], videoUrls: [], imageUrls: [], website_url: '' };
 }
 
 function base64ToBlob(base64, contentType) {
@@ -188,27 +239,159 @@ function fileNameFromUrl(url) {
   }
 }
 
+function extensionFromContentType(contentType) {
+  if (!contentType) return '';
+  const m = (contentType || '').toLowerCase();
+  if (m.includes('png')) return '.png';
+  if (m.includes('jpeg') || m.includes('jpg')) return '.jpg';
+  if (m.includes('gif')) return '.gif';
+  if (m.includes('webp')) return '.webp';
+  if (m.includes('mp4')) return '.mp4';
+  if (m.includes('webm')) return '.webm';
+  return '';
+}
+
+function filenameFromUrl(url, prefix, defaultExt) {
+  try {
+    const path = new URL(url).pathname;
+    const name = path.split('/').pop() || prefix;
+    const sane = name.length > 60 ? name.slice(0, 60) : name;
+    return sane.includes('.') ? sane : sane + defaultExt;
+  } catch (_) {
+    return prefix + defaultExt;
+  }
+}
+
+const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
+const MAX_VIDEO_BYTES = 15 * 1024 * 1024;
+
+/** Fetch media URLs in extension context (avoids CORS). Returns { imageBlobs: [{ blob, contentType, filename }], videoBlobs } */
+async function fetchMediaUrlsInExtension(imageUrls, videoUrls) {
+  const imageBlobs = [];
+  for (let i = 0; i < (imageUrls || []).length; i++) {
+    try {
+      const res = await fetch(imageUrls[i], { method: 'GET', credentials: 'omit' });
+      if (!res.ok) continue;
+      const blob = await res.blob();
+      if (blob.size > MAX_IMAGE_BYTES) continue;
+      const contentType = blob.type || 'application/octet-stream';
+      const ext = extensionFromContentType(contentType) || '.png';
+      const filename = filenameFromUrl(imageUrls[i], 'image_' + i, ext);
+      imageBlobs.push({ blob, contentType, filename });
+    } catch (_) {}
+  }
+  const videoBlobs = [];
+  for (let i = 0; i < (videoUrls || []).length; i++) {
+    try {
+      const res = await fetch(videoUrls[i], { method: 'GET', credentials: 'omit' });
+      if (!res.ok) continue;
+      const blob = await res.blob();
+      if (blob.size > MAX_VIDEO_BYTES) continue;
+      const contentType = blob.type || 'application/octet-stream';
+      const ext = extensionFromContentType(contentType) || '.mp4';
+      const filename = filenameFromUrl(videoUrls[i], 'video_' + i, ext);
+      videoBlobs.push({ blob, contentType, filename });
+    } catch (_) {}
+  }
+  return { imageBlobs, videoBlobs };
+}
+
+/** Build multipart/form-data for POST /v1/agent/run: api_key, prompt, website_content, website_url, file(s). */
+function buildAgentRunFormData(options) {
+  const form = new FormData();
+  form.append('api_key', options.api_key || '');
+  form.append('prompt', (options.prompt || '').trim() || 'Analyze this content for safety. Is it real or AI-generated?');
+  form.append('website_content', (options.website_content || '').trim() || '');
+  form.append('website_url', (options.website_url || '').trim() || '');
+  if (options.send_fact_check) form.append('send_fact_check', 'true');
+  if (options.send_media_check) form.append('send_media_check', 'true');
+  const imageBlobs = options.imageBlobs || [];
+  const videoBlobs = options.videoBlobs || [];
+  imageBlobs.forEach(function (item, i) {
+    if (item && item.blob) {
+      form.append('file', item.blob, item.filename || 'image_' + i + '.png');
+    } else if (item && item.base64) {
+      const ext = extensionFromContentType(item.contentType) || '.png';
+      const b = base64ToBlob(item.base64, item.contentType);
+      form.append('file', b, item.filename || 'image_' + i + ext);
+    }
+  });
+  videoBlobs.forEach(function (item, i) {
+    if (item && item.blob) {
+      form.append('file', item.blob, item.filename || 'video_' + i + '.mp4');
+    } else if (item && item.base64) {
+      const ext = extensionFromContentType(item.contentType) || '.mp4';
+      const b = base64ToBlob(item.base64, item.contentType);
+      form.append('file', b, item.filename || 'video_' + i + ext);
+    }
+  });
+  return form;
+}
+
+function escapeHtml(s) {
+  if (typeof s !== 'string') return '';
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function stripUrls(text) {
+  if (typeof text !== 'string') return '';
+  return text.replace(/https?:\/\/[^\s<>"\']+/gi, '').replace(/\s{2,}/g, ' ').trim();
+}
+
 function formatAgentRunResponse(data) {
   const parts = [];
+  let explanation = (data.trust_score_explanation || '').trim();
+  if (explanation) {
+    explanation = stripUrls(explanation);
+    if (explanation) {
+      parts.push(explanation.replace(/\n/g, '<br>').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>'));
+    }
+  }
   if (typeof data.trust_score === 'number') {
-    parts.push('**Trust score:** ' + data.trust_score + ' / 100');
+    const score = Math.max(0, Math.min(100, data.trust_score));
+    const tier = score < 40 ? 'low' : score < 65 ? 'mid' : 'high';
+    parts.push(
+      '<div class="trust-score-bar-wrap">' +
+        '<div class="trust-score-label">Trust score: ' + score + ' / 100</div>' +
+        '<div class="trust-score-bar-track">' +
+          '<div class="trust-score-bar-fill ' + tier + '" style="width:' + score + '%"></div>' +
+        '</div>' +
+      '</div>'
+    );
   }
+
   const fakeFacts = data.fake_facts || [];
-  if (fakeFacts.length > 0) {
-    parts.push('**Fake or disputed facts:**');
-    fakeFacts.forEach(function (f, i) {
-      parts.push((i + 1) + '. ' + (f.explanation || 'No explanation'));
-    });
-  }
+  const trueFacts = data.true_facts || [];
+  const allFacts = [
+    ...fakeFacts.map(function (f) { return { ...f, isFake: true }; }),
+    ...trueFacts.map(function (f) { return { ...f, isFake: false }; }),
+  ];
+  allFacts.forEach(function (f) {
+    const quote = escapeHtml((f.fact || '').trim()) || escapeHtml(f.explanation || 'No quote');
+    const cardClass = f.isFake ? 'fact-card fake' : 'fact-card true';
+    const verdict = f.isFake ? 'Disputed / likely false' : 'Supported / likely true';
+    parts.push(
+      '<div class="' + cardClass + '">' +
+        '<div class="fact-quote">' + quote + '</div>' +
+        '<div class="fact-verdict">' + verdict + '</div>' +
+      '</div>'
+    );
+  });
+
   const fakeMedia = data.fake_media || [];
   if (fakeMedia.length > 0) {
-    parts.push('**Media flagged:**');
+    parts.push('<strong>Media flagged:</strong>');
     fakeMedia.forEach(function (m, i) {
-      parts.push((i + 1) + '. ' + (m.media_url || m.media_type || 'Item') + (m.chunks?.length ? ' (' + m.chunks.length + ' segments)' : ''));
+      const label = (m.media_type || 'Media') + ' ' + (i + 1);
+      parts.push((i + 1) + '. ' + escapeHtml(label) + (m.chunks && m.chunks.length ? ' (' + m.chunks.length + ' segments)' : ''));
     });
   }
   if (parts.length === 0) return 'No structured result.';
-  return parts.join('\n\n');
+  return parts.join('<br><br>');
 }
 
 async function sendToAgent() {
@@ -222,67 +405,61 @@ async function sendToAgent() {
   const message = (messageEl.value || '').trim();
 
   sendBtn.disabled = true;
+  if (explainActionsEl) explainActionsEl.classList.remove('visible');
+  lastAgentResponse = null;
   setReply('Reading page…');
   log('sendToAgent: pageUrl=', pageUrl);
 
   try {
     const content = await getPageContentWithMedia();
     const pageText = (content.text || '').trim();
-    // #region agent log
-    fetch('http://127.0.0.1:7559/ingest/50217504-a361-4152-a44d-43637131f823',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1d87d0'},body:JSON.stringify({sessionId:'1d87d0',runId:'ext',hypothesisId:'H3',location:'popup.js:sendToAgent:after_getContent',message:'After getPageContentWithMedia',data:{pageTextLength:pageText.length,hasPageText:pageText.length>0,mediaUrlCount:(content.imageUrls||[]).length+(content.videoUrls||[]).length},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
-    log('sendToAgent: pageText length=', pageText.length);
-    if (!pageText) {
-      log('sendToAgent: no page text – check popup console and content script console for details');
-      setReply('Could not read page text. Reload the page and try again, or the site may block access.', true);
+    const allMediaUrls = [...(content.imageUrls || []), ...(content.videoUrls || [])];
+    if (!pageText && allMediaUrls.length === 0) {
+      log('sendToAgent: no page text and no media');
+      setReply('Could not read page content or media. Reload the page and try again, or the site may block access.', true);
       sendBtn.disabled = false;
       return;
     }
 
+    setReply('Downloading media…');
+    const { imageBlobs: downloadedImages, videoBlobs: downloadedVideos } = await fetchMediaUrlsInExtension(content.imageUrls || [], content.videoUrls || []);
+
     setReply('Masking private information…');
-    const piiResult = globalThis.KIDS_SAFETY_PII && globalThis.KIDS_SAFETY_PII.maskPII
+    const piiResult = (pageText && globalThis.KIDS_SAFETY_PII && globalThis.KIDS_SAFETY_PII.maskPII)
       ? globalThis.KIDS_SAFETY_PII.maskPII(pageText)
-      : { masked: pageText, detectedTypes: [] };
-    const maskedText = piiResult.masked || pageText;
-    log('sendToAgent: masking applied', {
-      detectedTypes: piiResult.detectedTypes || [],
-      originalLength: pageText.length,
-      maskedLength: maskedText.length,
-      textChanged: maskedText !== pageText,
-    });
-
-    const extracted = maskedText.slice(0, 12000);
-
-    const allMediaUrls = [...(content.imageUrls || []), ...(content.videoUrls || [])];
-    const imageCount = (content.imageUrls || []).length;
-    const videoCount = (content.videoUrls || []).length;
-    log('sendToAgent: media received', {
-      imageUrls: imageCount,
-      videoUrls: videoCount,
-      totalMediaUrls: allMediaUrls.length,
-      includedInPayload: Math.min(allMediaUrls.length, 20),
-    });
-    let websiteContent = (extracted || '').trim();
-    if (allMediaUrls.length > 0) {
-      websiteContent += '\n\nMedia URLs on this page:\n' + allMediaUrls.slice(0, 20).join('\n');
+      : { masked: pageText || '', detectedTypes: [] };
+    const maskedText = piiResult.masked || pageText || '';
+    let websiteContent = (maskedText || '').slice(0, 12000).trim();
+    if (downloadedImages.length > 0 || downloadedVideos.length > 0) {
+      if (websiteContent) websiteContent += '\n\n';
+      websiteContent += 'Attached files: ' + downloadedImages.length + ' image(s), ' + downloadedVideos.length + ' video(s).';
+    } else if (allMediaUrls.length > 0) {
+      if (websiteContent) websiteContent += '\n\n';
+      else websiteContent = 'Page has no extractable text. ';
+      websiteContent += 'Media URLs on this page:\n' + (content.imageUrls || []).concat(content.videoUrls || []).slice(0, 20).join('\n');
     }
+    websiteContent = websiteContent.slice(0, 50000);
+    const websiteUrl = content.website_url || pageUrl || '';
 
     setReply('Sending to agent gateway…');
 
-    // #region agent log
-    const bodyToSend = { api_key: apiKey, prompt: message || 'Analyze this content for safety. Is it real or AI-generated?', website_content: websiteContent.slice(0, 50000) };
-    fetch('http://127.0.0.1:7559/ingest/50217504-a361-4152-a44d-43637131f823',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1d87d0'},body:JSON.stringify({sessionId:'1d87d0',runId:'ext',hypothesisId:'H4',location:'popup.js:sendToAgent:before_fetch',message:'About to send to gateway',data:{agentRunUrl:AGENT_RUN_URL,websiteContentLength:(bodyToSend.website_content||'').length,hasApiKey:!!apiKey},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
-
-    const res = await fetch(AGENT_RUN_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(bodyToSend),
+    const gatewayBase = await getGatewayBaseUrl();
+    const agentRunUrl = gatewayBase + '/v1/agent/run';
+    const formData = buildAgentRunFormData({
+      api_key: apiKey,
+      prompt: message || 'Analyze this content for safety. Is it real or AI-generated?',
+      website_content: websiteContent,
+      website_url: websiteUrl,
+      imageBlobs: downloadedImages,
+      videoBlobs: downloadedVideos,
+      send_fact_check: true,
+      send_media_check: true,
     });
 
-    // #region agent log
-    fetch('http://127.0.0.1:7559/ingest/50217504-a361-4152-a44d-43637131f823',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1d87d0'},body:JSON.stringify({sessionId:'1d87d0',runId:'ext',hypothesisId:'H5',location:'popup.js:sendToAgent:after_fetch',message:'Gateway response',data:{status:res.status,ok:res.ok},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
+    const res = await fetch(agentRunUrl, {
+      method: 'POST',
+      body: formData,
+    });
 
     if (res.status === 401 || res.status === 403) {
       const data = await res.json().catch(() => ({}));
@@ -301,13 +478,13 @@ async function sendToAgent() {
 
     const data = await res.json();
     log('sendToAgent: success', data);
-    setReply(formatAgentRunResponse(data));
+    lastAgentResponse = data;
+    if (explainActionsEl) explainActionsEl.classList.add('visible');
+    if (explainOutputEl) { explainOutputEl.classList.remove('visible'); explainOutputEl.innerHTML = ''; }
+    setReply(formatAgentRunResponse(data), false, true);
   } catch (e) {
-    // #region agent log
-    fetch('http://127.0.0.1:7559/ingest/50217504-a361-4152-a44d-43637131f823',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1d87d0'},body:JSON.stringify({sessionId:'1d87d0',runId:'ext',hypothesisId:'H4',location:'popup.js:sendToAgent:catch',message:'Fetch threw',data:{errorMessage:(e&&e.message)||String(e)},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     log('sendToAgent: fetch error', e?.message || e);
-    setReply('Could not reach the agent gateway. Is it running at ' + GATEWAY_BASE_URL + '?', true);
+    setReply('Could not reach the agent gateway. Is it running at ' + (await getGatewayBaseUrl()) + '?', true);
   } finally {
     sendBtn.disabled = false;
   }
@@ -337,18 +514,94 @@ if (panicBtn) {
   });
 }
 
-sendBtn.addEventListener('click', sendToAgent);
+function setExplainButtonsEnabled(enabled) {
+  if (explainFlashcardsBtn) explainFlashcardsBtn.disabled = !enabled;
+  if (explainAudioBtn) explainAudioBtn.disabled = !enabled;
+  if (explainVideoBtn) explainVideoBtn.disabled = !enabled;
+}
 
-if (sendFactCheckEl) {
-  sendFactCheckEl.addEventListener('change', () => {
-    chrome.storage.local.set({ [STORAGE_SEND_FACT]: sendFactCheckEl.checked });
-  });
+function showExplainOutput(html) {
+  if (!explainOutputEl) return;
+  explainOutputEl.innerHTML = html;
+  explainOutputEl.classList.add('visible');
 }
-if (sendMediaCheckEl) {
-  sendMediaCheckEl.addEventListener('change', () => {
-    chrome.storage.local.set({ [STORAGE_SEND_MEDIA]: sendMediaCheckEl.checked });
-  });
+
+async function requestExplain(explanationType) {
+  const { apiKey } = await getStoredKeyAndMode();
+  if (!apiKey) {
+    showExplainOutput('<span class="error">API key missing. Open options to enter your key.</span>');
+    return;
+  }
+  if (!lastAgentResponse) {
+    showExplainOutput('<span class="error">No analysis result. Run Analyze page first.</span>');
+    return;
+  }
+
+  setExplainButtonsEnabled(false);
+  showExplainOutput('Generating ' + (explanationType === 'flashcards' ? 'flashcards' : explanationType === 'audio' ? 'audio' : 'video') + '…');
+
+  try {
+    const gatewayBase = await getGatewayBaseUrl();
+    const agentExplainUrl = gatewayBase + '/v1/agent/explain';
+    const res = await fetch(agentExplainUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: apiKey,
+        response: lastAgentResponse,
+        explanation_type: explanationType,
+        user_prompt: null,
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      let detail = errText;
+      try {
+        const errJson = JSON.parse(errText);
+        if (errJson.detail) detail = typeof errJson.detail === 'string' ? errJson.detail : JSON.stringify(errJson.detail);
+      } catch (_) {}
+      showExplainOutput('<span class="error">' + escapeHtml(detail) + '</span>');
+      setExplainButtonsEnabled(true);
+      return;
+    }
+
+    if (explanationType === 'flashcards') {
+      const json = await res.json();
+      const cards = json && Array.isArray(json.flashcards) ? json.flashcards : [];
+      if (cards.length === 0) {
+        showExplainOutput('<span class="error">No flashcards generated.</span>');
+      } else {
+        const html = cards.map(function (c) {
+          const front = escapeHtml((c.front || '').trim());
+          const back = escapeHtml((c.back || '').trim()).replace(/\n/g, '<br>');
+          return '<div class="flashcard-item"><div class="fc-front">' + front + '</div><div class="fc-back">' + back + '</div></div>';
+        }).join('');
+        showExplainOutput(html);
+      }
+    } else {
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const filename = explanationType === 'audio' ? 'explanation.mp3' : 'explanation.mp4';
+      const mime = explanationType === 'audio' ? 'audio/mpeg' : 'video/mp4';
+      const tag = explanationType === 'audio' ? 'audio' : 'video';
+      const html = '<' + tag + ' controls src="' + escapeHtml(url) + '" style="max-width:100%;max-height:120px;"></' + tag + '>' +
+        '<p style="margin:6px 0 0 0;"><a href="' + escapeHtml(url) + '" download="' + escapeHtml(filename) + '" style="font-size:11px;color:var(--emerald-600);">Download ' + filename + '</a></p>';
+      showExplainOutput(html);
+    }
+  } catch (e) {
+    log('requestExplain error', e?.message || e);
+    showExplainOutput('<span class="error">' + escapeHtml((e && e.message) || String(e)) + '</span>');
+  } finally {
+    setExplainButtonsEnabled(true);
+  }
 }
+
+if (explainFlashcardsBtn) explainFlashcardsBtn.addEventListener('click', () => requestExplain('flashcards'));
+if (explainAudioBtn) explainAudioBtn.addEventListener('click', () => requestExplain('audio'));
+if (explainVideoBtn) explainVideoBtn.addEventListener('click', () => requestExplain('video'));
+
+sendBtn.addEventListener('click', sendToAgent);
 
 (async function init() {
   const { apiKey, mode } = await getStoredKeyAndMode();
@@ -367,10 +620,4 @@ if (sendMediaCheckEl) {
   getCurrentTabUrl().then((url) => {
     pageUrlEl.textContent = url || '—';
   });
-
-  const prefs = await new Promise((r) => {
-    chrome.storage.local.get([STORAGE_SEND_FACT, STORAGE_SEND_MEDIA], (d) => r(d));
-  });
-  if (sendFactCheckEl && prefs[STORAGE_SEND_FACT] !== undefined) sendFactCheckEl.checked = prefs[STORAGE_SEND_FACT];
-  if (sendMediaCheckEl && prefs[STORAGE_SEND_MEDIA] !== undefined) sendMediaCheckEl.checked = prefs[STORAGE_SEND_MEDIA];
 })();

@@ -5,8 +5,11 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    # API key validation (allowed keys for incoming requests; optional in dev)
-    allowed_api_keys: Optional[str] = None  # comma-separated, or empty to skip validation
+    # API key validation: use portal (Django) when set; otherwise allowed_api_keys (comma-separated) or skip if empty
+    allowed_api_keys: Optional[str] = None  # comma-separated; ignored when portal_base_url is set
+    portal_base_url: Optional[str] = None  # e.g. http://host.docker.internal:8000; when set, validate key via GET portal_validate_path?api_key=...
+    portal_validate_path: str = "api/portal/validate/"
+    portal_validate_timeout_seconds: float = 10.0
 
     # LLM (Featherless: openai/gpt-oss-120b)
     llm_system_prompt: str = ""

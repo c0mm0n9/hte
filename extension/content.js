@@ -61,37 +61,9 @@
     return Array.from(urls);
   }
 
-  const MAX_IMAGES = 5;
-  const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
-  const MAX_VIDEOS = 1;
-  const MAX_VIDEO_BYTES = 5 * 1024 * 1024;
-
-  function blobToBase64(blob) {
-    return new Promise(function (resolve, reject) {
-      const r = new FileReader();
-      r.onload = function () {
-        const dataUrl = r.result;
-        const base64 = dataUrl.indexOf(',') >= 0 ? dataUrl.split(',')[1] : dataUrl;
-        resolve(base64);
-      };
-      r.onerror = reject;
-      r.readAsDataURL(blob);
-    });
-  }
-
-  async function fetchAsBase64(url, maxBytes) {
-    try {
-      const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
-      if (!res.ok) return null;
-      const blob = await res.blob();
-      if (blob.size > maxBytes) return null;
-      const contentType = blob.type || 'application/octet-stream';
-      const base64 = await blobToBase64(blob);
-      return { url, base64, contentType };
-    } catch (_) {
-      return null;
-    }
-  }
+  /** Max media URLs to send (actual download happens in extension context to avoid CORS). */
+  const MAX_IMAGE_URLS = 20;
+  const MAX_VIDEO_URLS = 5;
 
   async function getPageContentWithMedia() {
     const text = getPageText();
@@ -107,25 +79,14 @@
       }
     });
 
-    const imageBlobs = [];
-    for (let i = 0; i < Math.min(MAX_IMAGES, imageUrls.length); i++) {
-      const r = await fetchAsBase64(imageUrls[i], MAX_IMAGE_BYTES);
-      if (r) imageBlobs.push(r);
-    }
-
-    const videoBlobs = [];
-    for (let i = 0; i < Math.min(MAX_VIDEOS, videoUrls.length); i++) {
-      const r = await fetchAsBase64(videoUrls[i], MAX_VIDEO_BYTES);
-      if (r) videoBlobs.push(r);
-    }
-
     return {
       text,
       mediaUrls,
-      imageBlobs,
-      videoBlobs,
-      videoUrls: videoUrls.slice(0, 5),
-      imageUrls: imageUrls.slice(0, 10),
+      imageBlobs: [],
+      videoBlobs: [],
+      imageUrls: imageUrls.slice(0, MAX_IMAGE_URLS),
+      videoUrls: videoUrls.slice(0, MAX_VIDEO_URLS),
+      website_url: typeof window !== 'undefined' && window.location ? window.location.href : '',
     };
   }
 
@@ -224,6 +185,25 @@
         safeSendResponse(res);
       });
       return true;
+    }
+    if (msg.type === 'GET_MEDIA_URLS_ONLY') {
+      var mediaUrls = getMediaUrls();
+      var imageUrls = [];
+      var videoUrls = [];
+      mediaUrls.forEach(function (u) {
+        var lower = (u || '').toLowerCase();
+        if (/\.(mp4|webm|ogg|mov|avi|mkv)(\?|$)/.test(lower) || lower.includes('video')) {
+          videoUrls.push(u);
+        } else {
+          imageUrls.push(u);
+        }
+      });
+      safeSendResponse({
+        imageUrls: imageUrls.slice(0, MAX_IMAGE_URLS),
+        videoUrls: videoUrls.slice(0, MAX_VIDEO_URLS),
+        website_url: typeof window !== 'undefined' && window.location ? window.location.href : '',
+      });
+      return false;
     }
     if (msg.type === 'SHOW_PANIC_OVERLAY') {
       showPanicOverlay(msg.status || 'analyzing', msg);

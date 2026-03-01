@@ -38,7 +38,7 @@ Output only the JSON array of action objects."""
 
 TRUST_SCORE_SYSTEM_PROMPT = """You are a trust evaluator. Given the results of safety checks (AI text likelihood, media deepfake scores, fact checks, information graph), produce:
 - trust_score: integer 0-100 (0 = completely untrustworthy, 100 = fully trustworthy)
-- explanation: 2-4 sentence human-readable explanation citing the specific evidence (AI text score, fake/true facts, media scores, information graph status)
+- explanation: 2-4 sentence human-readable explanation citing the specific evidence (AI text score, which facts were true/false, media scores, information graph status). State only the facts and conclusions; do NOT include URLs, source links, or citations in the explanation.
 
 Output ONLY a JSON object with exactly these two keys: {"trust_score": <0-100>, "explanation": "<text>"}. No markdown, no extra keys."""
 
@@ -381,9 +381,19 @@ async def execute_action(
                 raw = [raw] if raw else []
             facts_to_check = [f.strip() for f in raw if isinstance(f, str) and f.strip()]
         # Run fact-check API calls in parallel (after extraction; no concurrent extraction + check)
-        tasks = [run_fact_check(f, settings) for f in facts_to_check if f]
+        facts_that_ran = [f for f in facts_to_check if f]
+        tasks = [run_fact_check(f, settings) for f in facts_that_ran]
         results = await asyncio.gather(*tasks) if tasks else []
-        return (action_type, {"facts": list(results)})
+        facts_with_meta = [
+            {
+                "fact": f,
+                "truth_value": r.get("truth_value"),
+                "explanation": (r.get("explanation") or "").strip(),
+                "source": (r.get("provider") or "Fact check").strip(),
+            }
+            for f, r in zip(facts_that_ran, results)
+        ]
+        return (action_type, {"facts": facts_with_meta})
     if action_type == "information_graph":
         website_text = action.get("website_text") or action.get("text") or (request_website_content or "")
         website_url = action.get("website_url") or action.get("url") or (request_website_url or "")
@@ -425,8 +435,12 @@ async def run_trust_score_llm(
         elif kind == "fact_check":
             for item in data.get("facts") or []:
                 tv = item.get("truth_value")
-                exp = item.get("explanation") or ""
-                summary_parts.append(f"[fact_check]: truth_value={tv} explanation={exp[:300]}")
+                # Include only the claim (fact) and explanation; strip URLs so LLM does not echo sources
+                claim = (item.get("fact") or "").strip()[:200]
+                exp = (item.get("explanation") or "").strip()
+                exp = re.sub(r"https?://\S+", "", exp).strip()
+                exp = exp[:300] if exp else ""
+                summary_parts.append(f"[fact_check]: truth_value={tv} fact={claim!r} explanation={exp}")
         elif kind == "information_graph":
             nodes_count = len(data.get("nodes") or [])
             edges_count = len(data.get("edges") or [])
@@ -542,6 +556,8 @@ def build_fake_facts(action_results: list[tuple[str, Any]]) -> list[FakeFact]:
                     FakeFact(
                         truth_value=False,
                         explanation=item.get("explanation") or "",
+                        fact=item.get("fact") or "",
+                        source=item.get("source") or "",
                     )
                 )
     return out
@@ -560,6 +576,8 @@ def build_true_facts(action_results: list[tuple[str, Any]]) -> list[TrueFact]:
                     TrueFact(
                         truth_value=True,
                         explanation=item.get("explanation") or "",
+                        fact=item.get("fact") or "",
+                        source=item.get("source") or "",
                     )
                 )
     return out

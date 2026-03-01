@@ -39,6 +39,9 @@
   <label for="api-key">API key</label>
   <input type="text" id="api-key" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx-agent" autocomplete="off" />
   <p class="hint">Suffix <code>-agent</code> = ask-if-real / AI-generated. Suffix <code>-control</code> = blacklist + block.</p>
+  <label for="provider-url">Provider URL (backend / agent gateway)</label>
+  <input type="text" id="provider-url" placeholder="http://127.0.0.1:8003" autocomplete="off" />
+  <p class="hint">Base URL of the agent gateway, e.g. <code>http://127.0.0.1:8003</code> or your server address. Leave empty to use the default.</p>
   <button type="button" id="save-btn">Save and validate</button>
   <button type="button" id="clear-btn" class="secondary">Clear key</button>
   <div id="status" class="status" style="display: none;"></div>

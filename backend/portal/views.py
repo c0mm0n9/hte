@@ -209,7 +209,6 @@ def api_device_blacklist_delete(request, device_id, entry_id):
     entry.delete()
     return JsonResponse({'status': 'deleted'})
 
-
 @require_GET
 @_require_parent
 def api_visited_sites_list(request, device_id=None):

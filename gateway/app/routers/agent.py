@@ -1,7 +1,9 @@
 import json
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile, status
+import httpx
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, UploadFile, status
+from fastapi.responses import Response
 
 from ..agent_service import build_agent_reply, build_analyze_reply
 from ..auth import parse_api_key
@@ -9,6 +11,56 @@ from ..schemas import AgentChatRequest, AgentChatResponse
 from ..settings import Settings, get_settings
 
 router = APIRouter(prefix="/v1/agent", tags=["agent"])
+
+
+def _agent_gateway_base(settings: Settings) -> str:
+    return settings.agent_gateway_url.rstrip("/")
+
+
+@router.post("/run")
+async def agent_run_proxy(request: Request, settings: Settings = Depends(get_settings)):
+    """Proxy to backend agent_gateway (backend/services/agent_gateway)."""
+    base = _agent_gateway_base(settings)
+    url = f"{base}/v1/agent/run"
+    body = await request.body()
+    content_type = request.headers.get("content-type", "")
+    timeout = settings.agent_gateway_timeout_seconds
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.post(url, content=body, headers={"Content-Type": content_type})
+        return Response(
+            content=r.content,
+            status_code=r.status_code,
+            headers={"Content-Type": r.headers.get("content-type", "application/json")},
+        )
+    except httpx.RequestError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Agent gateway unreachable: {e!s}",
+        )
+
+
+@router.post("/explain")
+async def agent_explain_proxy(request: Request, settings: Settings = Depends(get_settings)):
+    """Proxy to backend agent_gateway /v1/agent/explain."""
+    base = _agent_gateway_base(settings)
+    url = f"{base}/v1/agent/explain"
+    body = await request.body()
+    content_type = request.headers.get("content-type", "application/json")
+    timeout = settings.agent_gateway_explain_timeout_seconds
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.post(url, content=body, headers={"Content-Type": content_type})
+        return Response(
+            content=r.content,
+            status_code=r.status_code,
+            headers={"Content-Type": r.headers.get("content-type", "application/json")},
+        )
+    except httpx.RequestError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Agent gateway unreachable: {e!s}",
+        )
 
 
 async def require_api_key(

@@ -76,6 +76,12 @@ services:
     container_name: hte-agent-gateway
     env_file:
       - agent_gateway/.env
+    # So the container can reach Django portal on the host. Override in .env if your portal runs on another port.
+    environment:
+      - AGENT_GATEWAY_PORTAL_BASE_URL=${AGENT_GATEWAY_PORTAL_BASE_URL:-http://host.docker.internal:8000}
+    # Linux: host.docker.internal is not defined by default; this makes it resolve to the host
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     dns:
       - 8.8.8.8
       - 8.8.4.4

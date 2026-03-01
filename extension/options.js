@@ -1,12 +1,12 @@
 const PORTAL_API_BASE = (typeof globalThis !== 'undefined' && globalThis.KIDS_SAFETY_CONFIG?.PORTAL_API_BASE) || 'http://127.0.0.1:8000';
+const DEFAULT_GATEWAY_BASE = (typeof globalThis !== 'undefined' && globalThis.KIDS_SAFETY_CONFIG?.GATEWAY_BASE_URL) || 'http://127.0.0.1:8003';
 const VALIDATE_URL = PORTAL_API_BASE.replace(/\/$/, '') + '/api/portal/validate/';
 const STORAGE_KEY = 'kidsSafetyApiKey';
-if (typeof console !== 'undefined' && console.log) {
-  console.log('[sIsland Options] Validate URL:', VALIDATE_URL);
-}
+const STORAGE_GATEWAY_BASE_URL = 'kidsSafetyGatewayBaseUrl';
 const STORAGE_MODE = 'kidsSafetyMode';
 
 const apiKeyInput = document.getElementById('api-key');
+const providerUrlInput = document.getElementById('provider-url');
 const saveBtn = document.getElementById('save-btn');
 const clearBtn = document.getElementById('clear-btn');
 const statusEl = document.getElementById('status');
@@ -50,8 +50,12 @@ async function validateWithPortal(key) {
 
 saveBtn.addEventListener('click', async () => {
   const raw = (apiKeyInput.value || '').trim();
+  const providerUrl = (providerUrlInput.value || '').trim();
+  if (providerUrl) {
+    await chrome.storage.local.set({ [STORAGE_GATEWAY_BASE_URL]: providerUrl.replace(/\/$/, '') });
+  }
   if (!raw) {
-    showStatus('Please enter an API key.', true);
+    showStatus(providerUrl ? 'Provider URL saved.' : 'Please enter an API key or Provider URL.', !providerUrl);
     return;
   }
 
@@ -78,10 +82,9 @@ saveBtn.addEventListener('click', async () => {
       return;
     }
     const finalMode = portalResult !== mode ? portalResult : mode;
-    await chrome.storage.local.set({
-      [STORAGE_KEY]: raw,
-      [STORAGE_MODE]: finalMode,
-    });
+    const toSet = { [STORAGE_KEY]: raw, [STORAGE_MODE]: finalMode };
+    if (providerUrl) toSet[STORAGE_GATEWAY_BASE_URL] = providerUrl.replace(/\/$/, '');
+    await chrome.storage.local.set(toSet);
     showStatus('Saved. Mode: ' + finalMode + '. You can close this page and use the extension.', false);
     apiKeyInput.value = '';
   } catch (e) {
@@ -101,8 +104,13 @@ clearBtn.addEventListener('click', async () => {
   showStatus('API key cleared. Enter a new key to use the extension.', false);
 });
 
-chrome.storage.local.get([STORAGE_KEY, STORAGE_MODE], (data) => {
+chrome.storage.local.get([STORAGE_KEY, STORAGE_MODE, STORAGE_GATEWAY_BASE_URL], (data) => {
   if (data[STORAGE_KEY]) {
     apiKeyInput.placeholder = 'Key saved. Enter a new key to replace.';
+  }
+  if (data[STORAGE_GATEWAY_BASE_URL]) {
+    providerUrlInput.value = data[STORAGE_GATEWAY_BASE_URL];
+  } else {
+    providerUrlInput.placeholder = DEFAULT_GATEWAY_BASE;
   }
 });
