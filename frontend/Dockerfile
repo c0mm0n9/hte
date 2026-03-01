@@ -4,8 +4,8 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Build-time API URL (Django portal); set by deploy script
-ARG NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
+# Build-time: leave NEXT_PUBLIC_API_URL empty so browser uses same-origin /api/portal/* (proxy uses DJANGO_API_URL at runtime)
+ARG NEXT_PUBLIC_API_URL=
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
 COPY package.json package-lock.json* ./

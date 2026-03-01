@@ -18,9 +18,18 @@ logger = logging.getLogger("agent_gateway")
 def validate_api_key(api_key: str, settings: Settings) -> None:
     """Reject request if api_key is not allowed (when allowed_api_keys is set)."""
     if not settings.allowed_api_keys:
-        return
+        logger.warning("Agent run rejected: API key validation not configured (AGENT_GATEWAY_ALLOWED_API_KEYS or portal not set)")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="API key validation is not configured. Set AGENT_GATEWAY_PORTAL_BASE_URL or AGENT_GATEWAY_ALLOWED_API_KEYS.",
+        )
     allowed = {k.strip() for k in settings.allowed_api_keys.split(",") if k.strip()}
-    if allowed and api_key not in allowed:
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="API key validation is not configured. AGENT_GATEWAY_ALLOWED_API_KEYS must be non-empty.",
+        )
+    if api_key not in allowed:
         logger.warning("Agent run rejected: invalid API key")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -33,14 +42,11 @@ async def validate_api_key_with_portal(api_key: str, settings: Settings) -> Opti
     Validate API key via portal backend (GET .../api/portal/validate/?api_key=...).
     Returns backend-provided prompt when valid and present; None when valid but no prompt.
     Raises HTTPException: 401 invalid key, 502/503 upstream error or malformed response.
-    """
-<<<<<<< HEAD
-    return None
-=======
+    """ 
     base = (settings.portal_base_url or "").strip().rstrip("/")
     if not base:
         return None
->>>>>>> 0e4d9b14d4bedf533a6572bd5cf323dcef2f1906
+    return None
     path = (settings.portal_validate_path or "api/portal/validate/").strip().lstrip("/")
     url = f"{base}/{path}?{urlencode({'api_key': api_key})}"
     timeout = settings.portal_validate_timeout_seconds
@@ -174,7 +180,7 @@ async def agent_run(
 
     backend_prompt: Optional[str] = None
     if settings.portal_base_url:
-<<<<<<< HEAD
+        backend_prompt = await validate_api_key_with_portal(api_key, settings)
         try:
             backend_prompt = await validate_api_key_with_portal(api_key, settings)
         except HTTPException as e:
@@ -188,9 +194,6 @@ async def agent_run(
                     raise
             else:
                 raise
-=======
-        backend_prompt = await validate_api_key_with_portal(api_key, settings)
->>>>>>> 0e4d9b14d4bedf533a6572bd5cf323dcef2f1906
     else:
         validate_api_key(api_key, settings)
 
@@ -249,6 +252,10 @@ async def agent_explain(
       - video/audio: binary file with appropriate Content-Type and Content-Disposition
       - flashcards: JSON object {"flashcards": [...]}
     """
+    if settings.portal_base_url:
+        await validate_api_key_with_portal(payload.api_key, settings)
+    else:
+        validate_api_key(payload.api_key, settings)
 
     if not settings.media_explanation_url:
         raise HTTPException(

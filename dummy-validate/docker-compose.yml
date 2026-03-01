@@ -1,0 +1,21 @@
+# Dummy API key + validate service for local/testing.
+# Run: docker compose up -d
+# GET http://localhost:8080/api_key  -> dummy key
+# GET http://localhost:8080/validate/?api_key=<key> -> validate
+
+services:
+  dummy-validate:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:8000"
+    environment:
+      - DUMMY_VALIDATE_KEYS=${DUMMY_VALIDATE_KEYS:-dummy-00000000-0000-0000-0000-000000000001-control}
+      - DUMMY_VALIDATE_MODE=${DUMMY_VALIDATE_MODE:-control}
+      - DUMMY_VALIDATE_PROMPT=${DUMMY_VALIDATE_PROMPT:-You are a helpful assistant.}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
