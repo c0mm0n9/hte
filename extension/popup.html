@@ -26,6 +26,19 @@
     .reply-box.empty { color: var(--zinc-400); }
     .reply-box strong { color: var(--emerald-700); }
     .error { color: #dc2626; }
+    .trust-score-bar-wrap { margin: 8px 0; }
+    .trust-score-bar-wrap .trust-score-label { font-size: 11px; font-weight: 600; color: var(--zinc-700); margin-bottom: 4px; }
+    .trust-score-bar-track { height: 10px; background: var(--zinc-200); border-radius: 5px; overflow: hidden; }
+    .trust-score-bar-fill { height: 100%; border-radius: 5px; min-width: 2px; transition: width 0.3s ease; }
+    .trust-score-bar-fill.low { background: #dc2626; }
+    .trust-score-bar-fill.mid { background: #d97706; }
+    .trust-score-bar-fill.high { background: #16a34a; }
+    .fact-card { margin: 12px 0; padding: 10px 12px; border-radius: 8px; border-left: 4px solid; }
+    .fact-card.fake { border-left-color: #dc2626; background: #fef2f2; }
+    .fact-card.true { border-left-color: #16a34a; background: #f0fdf4; }
+    .fact-card .fact-quote { font-weight: 800; color: #18181b; margin: 6px 0; padding-left: 10px; border-left: 3px solid var(--emerald-300); font-size: 13px; line-height: 1.4; }
+    .fact-card.fake .fact-verdict { color: #b91c1c; font-weight: 600; }
+    .fact-card.true .fact-verdict { color: #15803d; font-weight: 600; }
     .panel { display: none; }
     .panel.active { display: block; }
     .setup-panel p { margin: 0 0 12px 0; color: var(--zinc-600); line-height: 1.5; }
@@ -34,7 +47,17 @@
     .popup-header { font-family: 'Outfit', system-ui, sans-serif; font-size: 1.35rem; font-weight: 700; margin: -4px 0 12px 0; padding-bottom: 10px; border-bottom: 1px solid var(--emerald-200); }
     .popup-header .logo-s { color: var(--emerald-600); }
     .popup-header .logo-island { color: var(--zinc-700); }
-    input[type="checkbox"] { accent-color: var(--emerald-600); margin-right: 6px; }
+    #explain-actions { display: none; margin-top: 10px; }
+    #explain-actions.visible { display: block; }
+    .explain-buttons { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+    .explain-btn { flex: 1; min-width: 0; padding: 6px 8px; font-size: 11px; font-weight: 600; color: var(--emerald-700); background: #fff; border: 1px solid var(--emerald-200); border-radius: 8px; cursor: pointer; }
+    .explain-btn:hover:not(:disabled) { background: var(--emerald-100); border-color: var(--emerald-300); }
+    .explain-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    #explain-output { margin-top: 8px; padding: 8px; background: #fff; border: 1px solid var(--emerald-200); border-radius: 8px; font-size: 11px; max-height: 160px; overflow-y: auto; display: none; }
+    #explain-output.visible { display: block; }
+    .flashcard-item { margin-bottom: 8px; padding: 6px 8px; background: var(--emerald-50); border-radius: 6px; border-left: 3px solid var(--emerald-400); }
+    .flashcard-item .fc-front { font-weight: 600; color: var(--zinc-800); }
+    .flashcard-item .fc-back { margin-top: 4px; color: var(--zinc-600); font-size: 10px; line-height: 1.3; }
   </style>
 </head>
 <body>
@@ -59,10 +82,17 @@
     <p class="url-row"><strong>Page:</strong> <span id="page-url">—</span></p>
     <label for="message">Your question (e.g. &quot;Is this real?&quot; or &quot;Is this AI-generated?&quot;)</label>
     <textarea id="message" placeholder="Is the content on this page real? Is it AI-generated?"></textarea>
-    <p style="margin: 8px 0;"><label style="display: inline; margin-right: 12px;"><input type="checkbox" id="send-fact-check" checked /> Fact check (masked text)</label></p>
-    <p style="margin: 0 0 8px 0;"><label style="display: inline;"><input type="checkbox" id="send-media-check" checked /> Media check (images/videos)</label></p>
     <button type="button" id="send-btn">Analyze page</button>
     <div id="reply" class="reply-box empty">Reply will appear here.</div>
+    <div id="explain-actions">
+      <p style="margin: 0 0 6px 0; font-size: 11px; color: var(--zinc-600);">Learn more:</p>
+      <div class="explain-buttons">
+        <button type="button" id="explain-flashcards" class="explain-btn">Flashcards</button>
+        <button type="button" id="explain-audio" class="explain-btn">Audio</button>
+        <button type="button" id="explain-video" class="explain-btn">Video</button>
+      </div>
+      <div id="explain-output"></div>
+    </div>
   </div>
   <script src="config.js"></script>
   <script src="lib/pii.js"></script>

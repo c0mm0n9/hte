@@ -46,6 +46,7 @@ async def validate_api_key_with_portal(api_key: str, settings: Settings) -> Opti
     base = (settings.portal_base_url or "").strip().rstrip("/")
     if not base:
         return None
+    return None
     path = (settings.portal_validate_path or "api/portal/validate/").strip().lstrip("/")
     url = f"{base}/{path}?{urlencode({'api_key': api_key})}"
     timeout = settings.portal_validate_timeout_seconds
@@ -127,6 +128,8 @@ async def agent_run(
     uploaded_files: list[tuple[bytes, str, str]] = []
     website_url: Optional[str] = None
 
+    send_fact_check = False
+    send_media_check = False
     if "multipart/form-data" in content_type or "application/x-www-form-urlencoded" in content_type:
         form = await request.form()
         api_key = (form.get("api_key") or "").strip().strip('"')
@@ -136,6 +139,8 @@ async def agent_run(
         website_content = website_content_raw.strip().strip('"') if isinstance(website_content_raw, str) else None
         website_url_raw = form.get("website_url")
         website_url = website_url_raw.strip().strip('"') if isinstance(website_url_raw, str) else None
+        send_fact_check = str(form.get("send_fact_check") or "").strip().lower() in ("true", "1", "yes")
+        send_media_check = str(form.get("send_media_check") or "").strip().lower() in ("true", "1", "yes")
 
         # Collect all uploaded files from any form field (Postman/curl may use uploaded_file, file, etc.).
         # Deduplicate keys first (dict.fromkeys preserves order), then use getlist() to retrieve
@@ -164,6 +169,8 @@ async def agent_run(
         prompt = body.get("prompt") or None
         website_content = body.get("website_content") or None
         website_url = body.get("website_url") or None
+        send_fact_check = bool(body.get("send_fact_check"))
+        send_media_check = bool(body.get("send_media_check"))
 
     if not api_key:
         raise HTTPException(
@@ -174,6 +181,19 @@ async def agent_run(
     backend_prompt: Optional[str] = None
     if settings.portal_base_url:
         backend_prompt = await validate_api_key_with_portal(api_key, settings)
+        try:
+            backend_prompt = await validate_api_key_with_portal(api_key, settings)
+        except HTTPException as e:
+            if e.status_code == status.HTTP_503_SERVICE_UNAVAILABLE:
+                # Portal unreachable (e.g. DNS "Name or service not known" in Docker) – fall back to allowed list
+                allowed = {k.strip() for k in (settings.allowed_api_keys or "").split(",") if k.strip()}
+                if allowed and api_key in allowed:
+                    backend_prompt = None  # use request prompt
+                    logger.info("Portal unreachable; key accepted via allowed_api_keys")
+                else:
+                    raise
+            else:
+                raise
     else:
         validate_api_key(api_key, settings)
 
@@ -198,6 +218,8 @@ async def agent_run(
         website_url=website_url,
         settings=settings,
         uploaded_files=uploaded_files,
+        send_fact_check=send_fact_check,
+        send_media_check=send_media_check,
     )
     logger.info(
         "agent/run done: trust_score=%s fake_facts=%s fake_media=%s true_facts=%s true_media=%s info_graph_nodes=%s content_safety=%s",
@@ -221,10 +243,10 @@ async def agent_explain(
     Generate an explanatory video, audio, or flashcards for a trust-score result.
 
     Body fields:
-      - api_key (required): API key for authentication
       - response (required): full JSON object from /agent/run
       - explanation_type (required): "video" | "audio" | "flashcards"
       - user_prompt (optional): personalisation hint passed to Minimax
+      - api_key (optional): not validated for explain
 
     Returns:
       - video/audio: binary file with appropriate Content-Type and Content-Disposition

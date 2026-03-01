@@ -38,7 +38,7 @@ Output only the JSON array of action objects."""
 
 TRUST_SCORE_SYSTEM_PROMPT = """You are a trust evaluator. Given the results of safety checks (AI text likelihood, media deepfake scores, fact checks, information graph), produce:
 - trust_score: integer 0-100 (0 = completely untrustworthy, 100 = fully trustworthy)
-- explanation: 2-4 sentence human-readable explanation citing the specific evidence (AI text score, fake/true facts, media scores, information graph status)
+- explanation: 2-4 sentence human-readable explanation citing the specific evidence (AI text score, which facts were true/false, media scores, information graph status). State only the facts and conclusions; do NOT include URLs, source links, or citations in the explanation.
 
 Output ONLY a JSON object with exactly these two keys: {"trust_score": <0-100>, "explanation": "<text>"}. No markdown, no extra keys."""
 
@@ -48,6 +48,27 @@ FACT_EXTRACTION_SYSTEM_PROMPT = """You are a fact-extraction assistant. Given te
 def _action_type(action: dict[str, Any]) -> str:
     """Normalize action type from 'action' or 'type' field."""
     return (action.get("action") or action.get("type") or "").strip().lower()
+
+
+def _parse_media_urls_from_content(website_content: str | None) -> list[str]:
+    """Extract media URLs from website_content when it contains 'Media URLs on this page:' block (extension format)."""
+    if not website_content or not website_content.strip():
+        return []
+    urls: list[str] = []
+    marker = "Media URLs on this page:"
+    idx = website_content.find(marker)
+    if idx == -1:
+        return []
+    rest = website_content[idx + len(marker) :].lstrip()
+    for line in rest.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("http://") or line.startswith("https://"):
+            urls.append(line)
+        else:
+            break
+    return urls
 
 
 async def get_actions_from_llm(
@@ -360,9 +381,19 @@ async def execute_action(
                 raw = [raw] if raw else []
             facts_to_check = [f.strip() for f in raw if isinstance(f, str) and f.strip()]
         # Run fact-check API calls in parallel (after extraction; no concurrent extraction + check)
-        tasks = [run_fact_check(f, settings) for f in facts_to_check if f]
+        facts_that_ran = [f for f in facts_to_check if f]
+        tasks = [run_fact_check(f, settings) for f in facts_that_ran]
         results = await asyncio.gather(*tasks) if tasks else []
-        return (action_type, {"facts": list(results)})
+        facts_with_meta = [
+            {
+                "fact": f,
+                "truth_value": r.get("truth_value"),
+                "explanation": (r.get("explanation") or "").strip(),
+                "source": (r.get("provider") or "Fact check").strip(),
+            }
+            for f, r in zip(facts_that_ran, results)
+        ]
+        return (action_type, {"facts": facts_with_meta})
     if action_type == "information_graph":
         website_text = action.get("website_text") or action.get("text") or (request_website_content or "")
         website_url = action.get("website_url") or action.get("url") or (request_website_url or "")
@@ -404,8 +435,12 @@ async def run_trust_score_llm(
         elif kind == "fact_check":
             for item in data.get("facts") or []:
                 tv = item.get("truth_value")
-                exp = item.get("explanation") or ""
-                summary_parts.append(f"[fact_check]: truth_value={tv} explanation={exp[:300]}")
+                # Include only the claim (fact) and explanation; strip URLs so LLM does not echo sources
+                claim = (item.get("fact") or "").strip()[:200]
+                exp = (item.get("explanation") or "").strip()
+                exp = re.sub(r"https?://\S+", "", exp).strip()
+                exp = exp[:300] if exp else ""
+                summary_parts.append(f"[fact_check]: truth_value={tv} fact={claim!r} explanation={exp}")
         elif kind == "information_graph":
             nodes_count = len(data.get("nodes") or [])
             edges_count = len(data.get("edges") or [])
@@ -521,6 +556,8 @@ def build_fake_facts(action_results: list[tuple[str, Any]]) -> list[FakeFact]:
                     FakeFact(
                         truth_value=False,
                         explanation=item.get("explanation") or "",
+                        fact=item.get("fact") or "",
+                        source=item.get("source") or "",
                     )
                 )
     return out
@@ -539,6 +576,8 @@ def build_true_facts(action_results: list[tuple[str, Any]]) -> list[TrueFact]:
                     TrueFact(
                         truth_value=True,
                         explanation=item.get("explanation") or "",
+                        fact=item.get("fact") or "",
+                        source=item.get("source") or "",
                     )
                 )
     return out
@@ -666,26 +705,38 @@ async def run_agent(
     settings: Settings,
     uploaded_files: list[tuple[bytes, str, str]] | None = None,
     website_url: str | None = None,
+    send_fact_check: bool = False,
+    send_media_check: bool = False,
 ) -> AgentRunResponse:
     """
     Full pipeline: get actions from LLM -> execute via APIs -> trust score LLM -> compile response.
 
     uploaded_files: optional list of (file_bytes, filename, content_type) for direct media upload checks.
     website_url: optional URL of the page being analyzed; passed to information_graph when the LLM does not provide it.
+    send_fact_check: when True, inject a fact_check action (facts extracted from website_content).
+    send_media_check: when True, inject ai_media_detection for each media URL parsed from website_content.
     """
     files = uploaded_files or []
     logger.info(
-        "run_agent started uploaded_files=%s website_url=%s",
+        "run_agent started uploaded_files=%s website_url=%s send_fact_check=%s send_media_check=%s",
         [f[1] for f in files] if files else [],
         (website_url or "")[:80] if website_url else None,
+        send_fact_check,
+        send_media_check,
     )
     actions = await get_actions_from_llm(
         prompt, website_content, settings, uploaded_file_names=[f[1] for f in files]
     )
-    injected_actions = [
+    injected_actions: list[dict[str, Any]] = [
         {"type": "ai_media_detection", "media_url": f"upload:{i}"}
         for i in range(len(files))
     ]
+    if send_fact_check:
+        injected_actions.append({"type": "fact_check", "facts": []})
+    if send_media_check:
+        media_urls = _parse_media_urls_from_content(website_content)
+        for url in media_urls:
+            injected_actions.append({"type": "ai_media_detection", "media_url": url})
     all_actions = injected_actions + actions
     # Execute all actions in parallel (independent API/LLM calls; no shared state)
     action_results = await asyncio.gather(

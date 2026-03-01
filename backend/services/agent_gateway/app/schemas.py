@@ -22,6 +22,8 @@ class FakeFact(BaseModel):
 
     truth_value: bool = False
     explanation: str = ""
+    fact: str = Field(default="", description="The claim that was checked (quote)")
+    source: str = Field(default="", description="Fact-check source or provider name")
 
 
 class TrueFact(BaseModel):
@@ -29,6 +31,8 @@ class TrueFact(BaseModel):
 
     truth_value: bool = True
     explanation: str = ""
+    fact: str = Field(default="", description="The claim that was checked (quote)")
+    source: str = Field(default="", description="Fact-check source or provider name")
 
 
 class FakeMediaChunk(BaseModel):
@@ -119,7 +123,7 @@ class AgentRunResponse(BaseModel):
 class ExplainRequest(BaseModel):
     """Request to generate an explanatory video, audio, or flashcards for a trust-score result."""
 
-    api_key: str = Field(..., description="API key for authentication")
+    api_key: Optional[str] = Field(None, description="API key (optional; no validation for explain)")
     response: AgentRunResponse = Field(..., description="The full response from /agent/run")
     explanation_type: Literal["video", "audio", "flashcards"] = Field(
         ..., description="Type of explanation to generate: video, audio, or flashcards"
